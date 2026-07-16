@@ -1,0 +1,157 @@
+[
+  {
+    "id": "PRESENT-001",
+    "name": "案发现场",
+    "group": "三现",
+    "category": "三现",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "案发时间", "keywords": ["年", "月", "日", "时", "昨天", "今天"]},
+      {"label": "案发地点", "keywords": ["家中", "公司", "店内", "路上", "地点", "在家"]},
+      {"label": "使用环境与设备", "keywords": ["手机", "电脑", "电话", "APP", "支付宝", "微信"]},
+      {"label": "在场人员", "keywords": ["独自", "一人", "在场", "朋友", "同事", "家人"]},
+      {"label": "关键操作场景", "keywords": ["点击", "下载", "登录", "转账", "扫码", "输入"]}
+    ],
+    "referenceHints": [
+      {"label": "网络环境", "keywords": ["Wi-Fi", "流量", "网络"]}
+    ],
+    "evidencePolicy": "引用能够说明受骗现场要素的原始问答及位置。",
+    "suggestedQuestion": "请按时间顺序说明受骗时所在地点、使用的设备、当时在场人员以及完成的关键操作。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "PRESENT-002",
+    "name": "涉案现物",
+    "group": "三现",
+    "category": "三现",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "涉案设备或实体载体", "keywords": ["手机", "电脑", "电话卡", "银行卡", "U盾", "安装包"]},
+      {"label": "现物持有或保存情况", "keywords": ["保存", "保留", "还在", "提供", "提交", "扣押"]},
+      {"label": "提取或查验情况", "keywords": ["提取", "查验", "勘验", "复制", "固定"]}
+    ],
+    "referenceHints": [
+      {"label": "涉诈 APP 名称与版本", "keywords": ["APP名称", "版本", "安装包"]},
+      {"label": "寄递物品与单号", "keywords": ["快递", "包裹", "运单号"]}
+    ],
+    "evidencePolicy": "引用现物名称、状态及是否可供提取查验的原始问答。",
+    "suggestedQuestion": "请说明涉案手机、电脑、电话卡、银行卡、APP 安装包等载体目前在哪里，是否已保存并可供提取查验。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "PRESENT-003",
+    "name": "电子现痕",
+    "group": "三现",
+    "category": "三现",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "电子痕迹种类", "keywords": ["通话记录", "短信", "聊天记录", "截图", "转账凭证", "链接", "域名"]},
+      {"label": "关联账号或标识", "keywords": ["账号", "微信号", "QQ号", "手机号", "链接", "域名"]},
+      {"label": "保存或灭失情况", "keywords": ["保存", "截图", "删除", "丢失", "还在", "记录"]}
+    ],
+    "referenceHints": [
+      {"label": "群聊成员与群名称", "keywords": ["群聊", "群名称", "群成员"]},
+      {"label": "APP 下载链接与登录账号", "keywords": ["下载链接", "登录账号"]}
+    ],
+    "evidencePolicy": "引用电子痕迹的存在、关联标识及保存状态原文。",
+    "suggestedQuestion": "请逐项说明通话、短信、聊天、截图、转账凭证、链接及账号等电子痕迹是否存在，目前是否完整保存。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "FLOW-001",
+    "name": "人员流",
+    "group": "四流",
+    "category": "四流",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "被害人身份", "keywords": ["我叫", "姓名", "身份证", "手机号"]},
+      {"label": "对方身份或虚拟身份", "keywords": ["对方", "客服", "老师", "警察", "账号", "昵称"]},
+      {"label": "其他关联人员", "keywords": ["朋友", "同事", "介绍人", "取现人", "快递员", "家人"]},
+      {"label": "人员关系", "keywords": ["认识", "关系", "介绍", "推荐", "陌生"]}
+    ],
+    "referenceHints": [
+      {"label": "第三方联系方式", "keywords": ["联系方式", "手机号", "账号"]},
+      {"label": "寄递人员身份", "keywords": ["快递员", "寄件人", "收件人"]}
+    ],
+    "evidencePolicy": "引用各参与人员身份、联系方式或相互关系的原始问答。",
+    "suggestedQuestion": "请说明对方及其他关联人员使用的真实或虚拟身份、联系方式、各自行为以及相互关系。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "FLOW-002",
+    "name": "信息流",
+    "group": "四流",
+    "category": "四流",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "首次接触渠道", "keywords": ["电话", "短信", "微信", "QQ", "短视频", "广告", "网页"]},
+      {"label": "通信平台与账号", "keywords": ["账号", "微信号", "QQ号", "手机号", "群聊"]},
+      {"label": "诈骗话术与指令", "keywords": ["让", "要求", "声称", "告诉", "指令", "安全账户"]},
+      {"label": "信息传递过程", "keywords": ["随后", "之后", "接着", "联系", "聊天", "发送"]}
+    ],
+    "referenceHints": [
+      {"label": "群聊名称及成员", "keywords": ["群名称", "群成员"]},
+      {"label": "平台账号注册资料", "keywords": ["注册手机号", "实名认证"]}
+    ],
+    "evidencePolicy": "引用从首次接触到持续沟通的渠道、账号、话术和传递顺序。",
+    "suggestedQuestion": "请从首次接触开始，说明使用的平台和账号、对方话术、发送的链接或资料，以及信息传递的先后顺序。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "FLOW-003",
+    "name": "资金流",
+    "group": "四流",
+    "category": "四流",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "逐笔转账时间与金额", "keywords": ["转账", "支付", "扫码", "元", "时", "分"]},
+      {"label": "付款账户与支付渠道", "keywords": ["付款账户", "银行卡", "支付宝", "微信", "手机银行"]},
+      {"label": "收款账户", "keywords": ["收款账户", "银行卡", "二维码", "尾号"]},
+      {"label": "交易流水号", "keywords": ["流水号", "交易单号", "订单号"]},
+      {"label": "总损失金额", "keywords": ["总损失", "一共", "合计"]},
+      {"label": "返利返还及止付冻结情况", "keywords": ["返利", "返现", "返还", "止付", "冻结", "追回"]}
+    ],
+    "referenceHints": [
+      {"label": "返利逐笔到账明细", "keywords": ["返利明细", "到账账户"]},
+      {"label": "提现失败页面", "keywords": ["提现失败", "无法提现"]}
+    ],
+    "evidencePolicy": "引用每笔资金变动及汇总、返还和处置情况的原始问答。",
+    "suggestedQuestion": "请逐笔说明转账时间、金额、付款和收款账户、支付渠道、流水号，并核对总损失及返利、止付、冻结或返还情况。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  },
+  {
+    "id": "FLOW-004",
+    "name": "行为流",
+    "group": "四流",
+    "category": "四流",
+    "scope": "base",
+    "triggers": [],
+    "requiredFacts": [
+      {"label": "引流与建立联系", "keywords": ["广告", "电话", "短信", "添加", "联系"]},
+      {"label": "下载登录或接受指令", "keywords": ["下载", "安装", "登录", "点击", "要求", "指令"]},
+      {"label": "付款及后续行为", "keywords": ["转账", "支付", "充值", "提现", "继续"]},
+      {"label": "发现被骗过程", "keywords": ["发现被骗", "意识到", "联系不上", "无法提现", "被骗"]},
+      {"label": "报案及处置时间线", "keywords": ["报案", "报警", "止付", "冻结", "随后", "之后"]}
+    ],
+    "referenceHints": [
+      {"label": "APP 当前可用状态", "keywords": ["还能打开", "无法登录"]},
+      {"label": "寄递行为节点", "keywords": ["寄出", "签收", "快递"]}
+    ],
+    "evidencePolicy": "引用能够串联关键行为节点及先后顺序的原始问答。",
+    "suggestedQuestion": "请按时间顺序完整说明从首次接触、下载登录、接受指令、转账或充值，到发现被骗、报警处置的全部行为节点。",
+    "source": "working_rule",
+    "sourceNote": "本项目三现四流办案审查工作口径"
+  }
+]

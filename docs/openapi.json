@@ -1,0 +1,849 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Bilu Review API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rules": {
+      "get": {
+        "summary": "List Rules",
+        "operationId": "list_rules_api_v1_rules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demos": {
+      "get": {
+        "summary": "List Demos",
+        "operationId": "list_demos_api_v1_demos_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews": {
+      "post": {
+        "summary": "Create Upload Review",
+        "operationId": "create_upload_review_api_v1_reviews_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_upload_review_api_v1_reviews_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/demos/{demo_id}": {
+      "post": {
+        "summary": "Create Demo Review",
+        "operationId": "create_demo_review_api_v1_reviews_demos__demo_id__post",
+        "parameters": [
+          {
+            "name": "demo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Demo Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTaskResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}": {
+      "get": {
+        "summary": "Review Detail",
+        "operationId": "review_detail_api_v1_reviews__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/results/{rule_id}/decision": {
+      "patch": {
+        "summary": "Save Decision",
+        "operationId": "save_decision_api_v1_reviews__task_id__results__rule_id__decision_patch",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_create_upload_review_api_v1_reviews_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_upload_review_api_v1_reviews_post"
+      },
+      "CreateTaskResponse": {
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "title": "Taskid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "taskId",
+          "status"
+        ],
+        "title": "CreateTaskResponse"
+      },
+      "DecisionRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ManualStatus"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "DecisionRequest"
+      },
+      "DecisionResponse": {
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/ReviewResult"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result"
+        ],
+        "title": "DecisionResponse"
+      },
+      "DemoListResponse": {
+        "properties": {
+          "demos": {
+            "items": {
+              "$ref": "#/components/schemas/DemoSummary"
+            },
+            "type": "array",
+            "title": "Demos"
+          }
+        },
+        "type": "object",
+        "required": [
+          "demos"
+        ],
+        "title": "DemoListResponse"
+      },
+      "DemoSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pageCount": {
+            "type": "integer",
+            "title": "Pagecount"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "pageCount",
+          "intent"
+        ],
+        "title": "DemoSummary"
+      },
+      "DocumentPage": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "paragraphs": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentParagraph"
+            },
+            "type": "array",
+            "title": "Paragraphs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "paragraphs"
+        ],
+        "title": "DocumentPage"
+      },
+      "DocumentParagraph": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "sourceType": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "sourceType"
+        ],
+        "title": "DocumentParagraph"
+      },
+      "EvidenceLocation": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "paragraph": {
+            "type": "integer",
+            "title": "Paragraph"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "paragraph"
+        ],
+        "title": "EvidenceLocation"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "qwen": {
+            "$ref": "#/components/schemas/QwenHealth"
+          },
+          "ruleCount": {
+            "type": "integer",
+            "title": "Rulecount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "qwen",
+          "ruleCount"
+        ],
+        "title": "HealthResponse"
+      },
+      "ManualDecision": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ManualStatus",
+            "default": "pending"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ManualDecision"
+      },
+      "ManualStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "confirmed",
+          "supplemented",
+          "ignored"
+        ],
+        "title": "ManualStatus"
+      },
+      "ParsedDocument": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "DOCX",
+              "PDF",
+              "SAMPLE"
+            ],
+            "title": "Format"
+          },
+          "pageCount": {
+            "type": "integer",
+            "title": "Pagecount"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentPage"
+            },
+            "type": "array",
+            "title": "Pages"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "sizeLabel": {
+            "type": "string",
+            "title": "Sizelabel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "format",
+          "pageCount",
+          "pages",
+          "text",
+          "sizeLabel"
+        ],
+        "title": "ParsedDocument"
+      },
+      "QwenHealth": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "reachable",
+          "model"
+        ],
+        "title": "QwenHealth"
+      },
+      "ReviewMode": {
+        "type": "string",
+        "enum": [
+          "qwen",
+          "local"
+        ],
+        "title": "ReviewMode"
+      },
+      "ReviewResult": {
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "title": "Ruleid"
+          },
+          "ruleName": {
+            "type": "string",
+            "title": "Rulename"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RuleStatus"
+          },
+          "missingFacts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missingfacts"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence"
+          },
+          "evidenceLocation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvidenceLocation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "suggestedQuestion": {
+            "type": "string",
+            "title": "Suggestedquestion"
+          },
+          "advisories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Advisories"
+          },
+          "manualDecision": {
+            "$ref": "#/components/schemas/ManualDecision"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ruleId",
+          "ruleName",
+          "category",
+          "group",
+          "status",
+          "missingFacts",
+          "evidence",
+          "evidenceLocation",
+          "reason",
+          "suggestedQuestion",
+          "source"
+        ],
+        "title": "ReviewResult"
+      },
+      "ReviewTask": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ReviewMode"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus",
+            "default": "parsing"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewResult"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "errorCode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errorcode"
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "ReviewTask"
+      },
+      "RuleListResponse": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RuleSummary"
+            },
+            "type": "array",
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rules"
+        ],
+        "title": "RuleListResponse"
+      },
+      "RuleStatus": {
+        "type": "string",
+        "enum": [
+          "covered",
+          "missing",
+          "incomplete",
+          "not_applicable"
+        ],
+        "title": "RuleStatus"
+      },
+      "RuleSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "requiredFacts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requiredfacts"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category",
+          "group",
+          "scope",
+          "requiredFacts",
+          "source"
+        ],
+        "title": "RuleSummary"
+      },
+      "SourceType": {
+        "type": "string",
+        "enum": [
+          "native_text",
+          "table",
+          "vision"
+        ],
+        "title": "SourceType"
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "uploading",
+          "parsing",
+          "recognizing",
+          "checking",
+          "validating",
+          "completed",
+          "failed"
+        ],
+        "title": "TaskStatus"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

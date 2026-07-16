@@ -1,0 +1,64 @@
+from pathlib import Path
+import re
+
+from docx import Document
+
+from scripts.generate_test_records import generate_test_records
+
+
+EXPECTED_FILES = [
+    "01-基本完整-电诈询问笔录.docx",
+    "02-明确漏问-电诈询问笔录.docx",
+    "03-复杂场景-APP返利询问笔录.docx",
+]
+
+
+def _document_text(path: Path) -> str:
+    document = Document(path)
+    parts = [paragraph.text for paragraph in document.paragraphs]
+    for table in document.tables:
+        for row in table.rows:
+            parts.extend(cell.text for cell in row.cells)
+    return "\n".join(parts)
+
+
+def test_generate_three_formal_fictional_records(tmp_path):
+    generated = generate_test_records(tmp_path)
+
+    assert [path.name for path in generated] == EXPECTED_FILES
+    for path in generated:
+        assert path.exists()
+        text = _document_text(path)
+        assert "询问笔录" in text
+        assert "虚构测试材料" in text
+        assert "案件编号" in text
+        assert "权利义务告知" in text
+        assert "被询问人签名" in text
+        assert re.search(r"(?<!\d)1\d{16}[0-9X](?!\d)", text)
+        assert re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
+        assert re.search(r"(?<!\d)6222\d{15}(?!\d)", text)
+        assert re.search(r"(?:流水号|交易单号)[:：][A-Z0-9-]{8,}", text)
+        assert not any(token in text for token in ["待补充", "XXX", "____", "不详"])
+
+
+def test_unknown_information_is_an_explicit_answer_only(tmp_path):
+    generated = generate_test_records(tmp_path)
+    texts = {path.name: _document_text(path) for path in generated}
+
+    assert "我不知道" not in texts[EXPECTED_FILES[0]]
+    assert "我不知道" not in texts[EXPECTED_FILES[1]]
+    assert "答：我不知道" in texts[EXPECTED_FILES[2]]
+    for line in texts[EXPECTED_FILES[2]].splitlines():
+        if "不知道" in line:
+            assert "答：我不知道" in line
+
+
+def test_each_record_contains_scenario_specific_mock_accounts(tmp_path):
+    generated = generate_test_records(tmp_path)
+    texts = {path.name: _document_text(path) for path in generated}
+
+    assert "wx_test_20260716_a" in texts[EXPECTED_FILES[0]]
+    assert "qq_test_20260716_b" in texts[EXPECTED_FILES[1]]
+    assert "app_test_20260716_c" in texts[EXPECTED_FILES[2]]
+    assert "198.51.100.23" in texts[EXPECTED_FILES[2]]
+    assert "https://download.example.test/app/case003" in texts[EXPECTED_FILES[2]]
