@@ -370,6 +370,14 @@ class SqliteTaskStore:
             "artifacts": [_row(row) for row in artifacts],
         }
 
+    def get_artifact_record(self, task_id: str, artifact_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? AND id = ?",
+                (task_id, artifact_id),
+            ).fetchone()
+        return _row(row)
+
 
 def _json(value: dict) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
@@ -398,3 +406,39 @@ def get_task(task_id: str) -> ReviewTask | None:
 
 def list_tasks() -> list[ReviewTask]:
     return STORE.list_tasks()
+
+
+def save_document(*args, **kwargs) -> str:
+    return STORE.save_document(*args, **kwargs)
+
+
+def save_document_version(*args, **kwargs) -> str:
+    return STORE.save_document_version(*args, **kwargs)
+
+
+def save_review_run(*args, **kwargs) -> str:
+    return STORE.save_review_run(*args, **kwargs)
+
+
+def save_extracted_fact(*args, **kwargs) -> str:
+    return STORE.save_extracted_fact(*args, **kwargs)
+
+
+def save_review_issue(*args, **kwargs) -> str:
+    return STORE.save_review_issue(*args, **kwargs)
+
+
+def append_manual_event(*args, **kwargs) -> str:
+    return STORE.append_manual_event(*args, **kwargs)
+
+
+def save_artifact_record(*args, **kwargs) -> str:
+    return STORE.save_artifact_record(*args, **kwargs)
+
+
+def get_audit_snapshot(task_id: str) -> dict:
+    return STORE.get_audit_snapshot(task_id)
+
+
+def get_artifact_record(task_id: str, artifact_id: str) -> dict | None:
+    return STORE.get_artifact_record(task_id, artifact_id)

@@ -20,10 +20,11 @@ API 路由层 — FastAPI 应用入口，定义全部 HTTP 端点。
 """
 
 import logging
+from urllib.parse import quote
 
 from fastapi import BackgroundTasks, FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.config import FRONTEND_ORIGIN, MAX_FILE_SIZE, QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
 from app.data import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
@@ -38,14 +39,34 @@ from app.models import (
     DemoListResponse,
     HealthResponse,
     FollowUpListResponse,
+    FollowUpAnswerRequest,
     ReportData,
     ReviewListResponse,
     ReviewMode,
     ReviewTask,
     RuleListResponse,
+    IssueActionRequest,
+    RetryDomainRequest,
+    WarningAcknowledgementRequest,
 )
+from app.services.artifacts import read_artifact_record
 from app.services.qwen import check_qwen
-from app.services.review import complete_review, create_task, follow_ups, process_demo, process_upload, report_data, review_history, update_decision
+from app.services.review import (
+    acknowledge_warnings,
+    artifact_record,
+    complete_review,
+    create_task,
+    follow_ups,
+    process_demo,
+    process_upload,
+    record_follow_up_answer,
+    record_issue_action,
+    report_data,
+    retry_failed_domain,
+    review_history,
+    review_versions,
+    update_decision,
+)
 from app.store import get_task
 
 
@@ -163,9 +184,63 @@ async def review_detail(task_id: str):
     return task
 
 
+@app.get("/api/v1/reviews/{task_id}/versions")
+async def list_review_versions(task_id: str):
+    return {"versions": review_versions(task_id)}
+
+
+@app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/actions", response_model=DecisionResponse)
+async def save_issue_action(task_id: str, rule_id: str, payload: IssueActionRequest):
+    return {"result": record_issue_action(task_id, rule_id, payload.status, payload.reason, payload.actorId)}
+
+
+@app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/follow-up-answer", response_model=ReviewTask)
+async def save_follow_up_answer(task_id: str, rule_id: str, payload: FollowUpAnswerRequest):
+    return await record_follow_up_answer(
+        task_id,
+        rule_id,
+        question=payload.question,
+        answer=payload.answer,
+        actor_id=payload.actorId,
+    )
+
+
+@app.post("/api/v1/reviews/{task_id}/domains/{domain}/retry", response_model=ReviewTask)
+async def retry_review_domain(task_id: str, domain: str, payload: RetryDomainRequest):
+    return await retry_failed_domain(task_id, domain, payload.actorId)
+
+
+@app.post("/api/v1/reviews/{task_id}/warnings/acknowledge", response_model=ReviewTask)
+async def acknowledge_review_warnings(task_id: str, payload: WarningAcknowledgementRequest):
+    return acknowledge_warnings(task_id, payload.codes, payload.actorId)
+
+
+@app.get("/api/v1/reviews/{task_id}/artifacts/{artifact_id}")
+async def download_review_artifact(task_id: str, artifact_id: str):
+    record = artifact_record(task_id, artifact_id)
+    content = read_artifact_record(record)
+    filename = record["filename"]
+    media_type = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".json": "application/json",
+    }.get("." + filename.rsplit(".", 1)[-1].lower() if "." in filename else "", "application/octet-stream")
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 @app.post("/api/v1/reviews/{task_id}/complete", response_model=CompleteReviewResponse)
 async def archive_review(task_id: str):
     """完成复核 — 将审查任务置为已归档状态（只读）。"""
+    task = complete_review(task_id)
+    return {"reviewStatus": task.reviewStatus, "archivedAt": task.archivedAt}
+
+
+@app.post("/api/v1/reviews/{task_id}/archive", response_model=CompleteReviewResponse)
+async def archive_review_v2(task_id: str):
     task = complete_review(task_id)
     return {"reviewStatus": task.reviewStatus, "archivedAt": task.archivedAt}
 

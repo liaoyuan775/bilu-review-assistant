@@ -68,6 +68,8 @@ class ManualStatus(StrEnum):
     CONFIRMED = "confirmed"          # 确认存在问题
     SUPPLEMENTED = "supplemented"    # 已加入补问清单
     IGNORED = "ignored"              # 已忽略
+    RESOLVED = "resolved"            # 已补问并记录明确答案
+    NOT_APPLICABLE = "not_applicable"  # 人工确认条件不适用
 
 
 class ReviewStatus(StrEnum):
@@ -297,14 +299,30 @@ class ReviewTimings(BaseModel):
     totalMs: int | None = None              # 任务总耗时
 
 
+class ArtifactSummary(BaseModel):
+    id: str
+    type: str
+    filename: str
+    sha256: str
+    sizeBytes: int = Field(ge=0)
+
+
 class ReviewTask(BaseModel):
     """审查任务 — 系统的核心聚合根，包含一份笔录的全部审查状态。"""
     id: str = Field(default_factory=lambda: str(uuid4()))
     mode: ReviewMode
     status: TaskStatus = TaskStatus.PARSING
     document: ParsedDocument | None = None
+    documentId: str | None = None
+    documentVersionId: str | None = None
+    reviewRunId: str | None = None
+    extractionPayload: dict | None = None
     victimProfile: VictimProfile | None = None
     results: list[ReviewResult] = Field(default_factory=list)
+    failedDomains: list[str] = Field(default_factory=list)
+    acknowledgedWarnings: list[str] = Field(default_factory=list)
+    artifacts: list[ArtifactSummary] = Field(default_factory=list)
+    requiredArtifacts: list[str] = Field(default_factory=list)
     timings: ReviewTimings = Field(default_factory=lambda: ReviewTimings())
     reviewStatus: ReviewStatus = ReviewStatus.IN_REVIEW
     archivedAt: str | None = None
@@ -321,6 +339,27 @@ class ReviewTask(BaseModel):
 class DecisionRequest(BaseModel):
     status: ManualStatus
     reason: str = ""
+
+
+class IssueActionRequest(BaseModel):
+    status: ManualStatus
+    reason: str = ""
+    actorId: str = "local-operator"
+
+
+class FollowUpAnswerRequest(BaseModel):
+    question: str
+    answer: str
+    actorId: str = "local-operator"
+
+
+class RetryDomainRequest(BaseModel):
+    actorId: str = "local-operator"
+
+
+class WarningAcknowledgementRequest(BaseModel):
+    codes: list[str]
+    actorId: str = "local-operator"
 
 
 class CompleteReviewResponse(BaseModel):

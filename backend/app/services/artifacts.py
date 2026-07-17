@@ -93,3 +93,17 @@ ARTIFACT_STORAGE = ArtifactStorage(REVIEW_ARTIFACT_ROOT)
 
 def save_original(task_id: str, filename: str, content: bytes) -> DocumentArtifact:
     return ARTIFACT_STORAGE.save_original(task_id, filename, content)
+
+
+def read_artifact_record(record: dict) -> bytes:
+    artifact = DocumentArtifact(
+        id=record["id"],
+        taskId=record["task_id"],
+        filename=record["filename"],
+        path=Path(record["path"]),
+        sha256=record["sha256"],
+        sizeBytes=record["size_bytes"],
+        artifactType=record["artifact_type"],
+        createdAt=record["created_at"],
+    )
+    return ARTIFACT_STORAGE.read(artifact)

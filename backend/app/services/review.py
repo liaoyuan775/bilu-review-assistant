@@ -22,18 +22,60 @@
 """
 
 import logging
+from hashlib import sha256
 from time import perf_counter
+from uuid import uuid4
 
 from app.demo_cases import get_demo_case, load_demo_document
+from app.config import QWEN_MODEL
+from app.data import TEMPLATE_RULE_CATALOG
 from app.development_logging import log_event, log_payload, reset_task_id, set_task_id
 from app.errors import AppError
-from app.models import ManualStatus, ReviewMode, ReviewStatus, ReviewTask, RuleStatus, TaskStatus, now_iso
+from app.models import ArtifactSummary, DocumentParagraph, ManualDecision, ManualStatus, ReviewMode, ReviewStatus, ReviewTask, RuleStatus, SourceType, TaskStatus, now_iso
+from app.services.archive import assert_archive_ready
+from app.services.artifacts import save_original
+from app.services.question_answer import reconstruct_question_answers
 from app.services.mock_review import build_mock_review
 from app.services.parser import parse_document
 from app.services.qwen import review_with_qwen
-from app.services.template_extraction import review_template_document
+from app.services.template_extraction import TemplateReviewOutcome, review_template_document, run_template_review
 from app.services.victim_profile import extract_victim_profile
-from app.store import get_task, list_tasks, save_task
+from app.template_models import CaseExtraction
+from app.store import (
+    append_manual_event,
+    get_audit_snapshot,
+    get_artifact_record,
+    get_task,
+    list_tasks,
+    save_artifact_record,
+    save_document,
+    save_document_version,
+    save_extracted_fact,
+    save_review_issue,
+    save_review_run,
+    save_task,
+)
+
+
+_GROUP_DOMAINS = {
+    "META": "header_procedure",
+    "PROC": "header_procedure",
+    "CASE": "case_timeline",
+    "TIME": "case_timeline",
+    "PRIV": "case_timeline",
+    "MOTIVE": "case_timeline",
+    "LEAD": "contact_channels",
+    "CONTACT": "contact_channels",
+    "PREV": "risk_and_evidence",
+    "RISK": "risk_and_evidence",
+    "EVID": "risk_and_evidence",
+    "MONEY": "online_money",
+    "CASH": "offline_delivery",
+    "OFFLINE": "offline_delivery",
+    "EXTRA": "special_scenarios",
+}
+
+_REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx", "structured_json"]
 
 
 def create_task(mode: ReviewMode) -> ReviewTask:
@@ -68,11 +110,46 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
     total_started = perf_counter()
     try:
         log_event(logging.INFO, "review.started", filename=filename, bytes=len(content), mode=task.mode.value)
+        original = save_original(task.id, filename, content)
+        task.documentId = save_document(
+            task.id,
+            filename=original.filename,
+            mime_type=(
+                "application/pdf"
+                if original.filename.lower().endswith(".pdf")
+                else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+            sha256=original.sha256,
+            original_path=str(original.path),
+        )
+        original_record_id = save_artifact_record(
+            task.id,
+            None,
+            artifact_type="original",
+            filename=original.filename,
+            path=str(original.path),
+            sha256=original.sha256,
+            size_bytes=original.sizeBytes,
+            metadata={"source": "upload"},
+        )
+        task.artifacts = [ArtifactSummary(
+            id=original_record_id,
+            type="original",
+            filename=original.filename,
+            sha256=original.sha256,
+            sizeBytes=original.sizeBytes,
+        )]
+        task.requiredArtifacts = list(_REQUIRED_ARTIFACTS)
         task.status = TaskStatus.RECOGNIZING
         save_task(task)
         log_event(logging.INFO, "review.status_changed", status=task.status.value)
         parse_started = perf_counter()
         task.document = await parse_document(filename, content)
+        task.documentVersionId = save_document_version(
+            task.documentId,
+            content_sha256=original.sha256,
+            parsed_payload=task.document.model_dump(mode="json"),
+        )
         task.timings.parseMs = round((perf_counter() - parse_started) * 1000)
         log_event(logging.INFO, "review.parse_complete", duration_ms=task.timings.parseMs, pages=task.document.pageCount, chars=len(task.document.text))
         task.victimProfile = extract_victim_profile(task.document.text)
@@ -88,7 +165,7 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         model_started = perf_counter()
         group_timings: dict[str, int] = {}
         try:
-            results = await review_template_document(task.document, group_timings=group_timings)
+            outcome = await run_template_review(task.document, group_timings=group_timings)
         finally:
             task.timings.modelReviewMs = round((perf_counter() - model_started) * 1000)
             task.timings.modelGroupsMs = group_timings
@@ -96,14 +173,26 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         task.status = TaskStatus.VALIDATING
         save_task(task)
         log_event(logging.INFO, "review.status_changed", status=task.status.value)
-        task.results = results
+        task.results = outcome.results
+        _persist_outcome(task, outcome)
         task.status = TaskStatus.COMPLETED
-        log_payload("review.results_merged", [result.model_dump(mode="json") for result in results], rules=len(results))
+        log_payload("review.results_merged", [result.model_dump(mode="json") for result in task.results], rules=len(task.results))
     except AppError as error:
         task.status = TaskStatus.FAILED
         task.results = []
         task.errorCode = error.code
         task.errorMessage = error.message
+        if error.code == "template_domain_failed" and error.field:
+            task.failedDomains = list(dict.fromkeys([*task.failedDomains, error.field]))
+        if task.documentVersionId:
+            task.reviewRunId = save_review_run(
+                task.id,
+                task.documentVersionId,
+                rule_version=TEMPLATE_RULE_CATALOG.version,
+                model=QWEN_MODEL,
+                status="failed",
+                timings=task.timings.modelGroupsMs,
+            )
         log_event(logging.ERROR, "review.failed", code=error.code, message=error.message, field=error.field, rule_id=error.rule_id)
     except Exception:
         task.status = TaskStatus.FAILED
@@ -188,6 +277,247 @@ async def process_demo(task_id: str, demo_id: str) -> None:
     reset_task_id(context_token)
 
 
+def _issue_id(task_id: str, rule_id: str) -> str | None:
+    issues = get_audit_snapshot(task_id)["issues"]
+    return next((item["id"] for item in reversed(issues) if item["rule_id"] == rule_id), None)
+
+
+def _persist_outcome(task: ReviewTask, outcome: TemplateReviewOutcome) -> None:
+    task.extractionPayload = outcome.extraction.model_dump(mode="json")
+    snapshot = get_audit_snapshot(task.id)
+    if not task.documentVersionId or not any(
+        version["id"] == task.documentVersionId for version in snapshot["versions"]
+    ):
+        return
+    run_id = save_review_run(
+        task.id,
+        task.documentVersionId,
+        rule_version=TEMPLATE_RULE_CATALOG.version,
+        model=QWEN_MODEL,
+        status="completed",
+        timings=task.timings.modelGroupsMs,
+    )
+    task.reviewRunId = run_id
+    for path, fact in outcome.extraction.facts.items():
+        save_extracted_fact(run_id, path, fact.model_dump(mode="json"))
+    for entity_type, entities in outcome.extraction.entities.items():
+        save_extracted_fact(
+            run_id,
+            f"entities.{entity_type}",
+            {"items": [entity.model_dump(mode="json") for entity in entities]},
+        )
+    for issue in outcome.issues:
+        save_review_issue(run_id, issue.ruleId, issue.model_dump(mode="json"))
+
+
+def record_issue_action(
+    task_id: str,
+    rule_id: str,
+    status: ManualStatus,
+    reason: str,
+    actor_id: str,
+):
+    task = get_task(task_id)
+    if task is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    if task.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能继续修改。", 409)
+    if task.status != TaskStatus.COMPLETED:
+        raise AppError("task_not_completed", "任务尚未完成，不能提交人工处理。", 409)
+    allowed = {
+        ManualStatus.CONFIRMED,
+        ManualStatus.SUPPLEMENTED,
+        ManualStatus.IGNORED,
+        ManualStatus.RESOLVED,
+        ManualStatus.NOT_APPLICABLE,
+    }
+    if status not in allowed:
+        raise AppError("invalid_decision", "人工处理状态无效。", 422)
+    result = next((item for item in task.results if item.ruleId == rule_id), None)
+    if result is None:
+        raise AppError("rule_result_not_found", "规则结果不存在。", 404)
+    normalized_reason = reason.strip()
+    if status in {ManualStatus.IGNORED, ManualStatus.RESOLVED, ManualStatus.NOT_APPLICABLE} and not normalized_reason:
+        raise AppError("decision_reason_required", "该处理动作必须填写依据。", 422)
+    previous = result.manualDecision.model_dump(mode="json")
+    result.manualDecision.status = status
+    result.manualDecision.reason = normalized_reason
+    append_manual_event(
+        task.id,
+        issue_id=_issue_id(task.id, rule_id),
+        event_type=status.value,
+        actor_id=actor_id.strip() or "local-operator",
+        payload={
+            "ruleId": rule_id,
+            "previous": previous,
+            "current": result.manualDecision.model_dump(mode="json"),
+        },
+    )
+    save_task(task)
+    return result
+
+
+def acknowledge_warnings(task_id: str, codes: list[str], actor_id: str) -> ReviewTask:
+    task = get_task(task_id)
+    if task is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    if task.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能修改告警。", 409)
+    available = {warning.code for warning in task.document.warnings} if task.document else set()
+    unknown = set(codes) - available
+    if unknown:
+        raise AppError("warning_not_found", "包含当前文档不存在的告警代码。", 404)
+    task.acknowledgedWarnings = list(dict.fromkeys([*task.acknowledgedWarnings, *codes]))
+    append_manual_event(
+        task.id,
+        issue_id=None,
+        event_type="warnings_acknowledged",
+        actor_id=actor_id.strip() or "local-operator",
+        payload={"codes": codes},
+    )
+    return save_task(task)
+
+
+def review_versions(task_id: str) -> list[dict]:
+    if get_task(task_id) is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    return [{
+        "id": item["id"],
+        "versionNumber": item["version_number"],
+        "contentSha256": item["content_sha256"],
+        "createdAt": item["created_at"],
+    } for item in get_audit_snapshot(task_id)["versions"]]
+
+
+def artifact_record(task_id: str, artifact_id: str) -> dict:
+    if get_task(task_id) is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    record = get_artifact_record(task_id, artifact_id)
+    if record is None:
+        raise AppError("artifact_not_found", "归档产物不存在。", 404)
+    return record
+
+
+def _append_follow_up(document, question: str, answer: str):
+    updated = document.model_copy(deep=True)
+    question_text = f"问：{question.strip()}"
+    answer_text = f"答：{answer.strip()}"
+    if not updated.pages:
+        raise AppError("document_has_no_pages", "当前文档没有可追加补问的页面。", 409)
+    offset = len(updated.text) + (1 if updated.text else 0)
+    question_id = sha256(f"{updated.id}:{offset}:{question_text}".encode("utf-8")).hexdigest()[:24]
+    answer_start = offset + len(question_text) + 1
+    answer_id = sha256(f"{updated.id}:{answer_start}:{answer_text}".encode("utf-8")).hexdigest()[:24]
+    updated.pages[-1].paragraphs.extend([
+        DocumentParagraph(
+            id=question_id,
+            text=question_text,
+            sourceType=SourceType.NATIVE_TEXT,
+            charStart=offset,
+            charEnd=offset + len(question_text),
+        ),
+        DocumentParagraph(
+            id=answer_id,
+            text=answer_text,
+            sourceType=SourceType.NATIVE_TEXT,
+            charStart=answer_start,
+            charEnd=answer_start + len(answer_text),
+        ),
+    ])
+    updated.text = "\n".join(part for part in (updated.text, question_text, answer_text) if part)
+    updated.questionAnswers = reconstruct_question_answers(updated.pages)
+    updated.id = str(uuid4())
+    return updated
+
+
+async def record_follow_up_answer(
+    task_id: str,
+    rule_id: str,
+    *,
+    question: str,
+    answer: str,
+    actor_id: str,
+) -> ReviewTask:
+    task = get_task(task_id)
+    if task is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    if task.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能继续修改。", 409)
+    if task.status != TaskStatus.COMPLETED or task.document is None or task.documentId is None:
+        raise AppError("task_not_completed", "审查文档尚未完成，不能记录补问。", 409)
+    result = next((item for item in task.results if item.ruleId == rule_id), None)
+    if result is None:
+        raise AppError("rule_result_not_found", "规则结果不存在。", 404)
+    if not question.strip() or not answer.strip():
+        raise AppError("follow_up_answer_required", "实际补问和答案均不能为空。", 422)
+    updated_document = _append_follow_up(task.document, question, answer)
+    task.documentVersionId = save_document_version(
+        task.documentId,
+        content_sha256=sha256(updated_document.text.encode("utf-8")).hexdigest(),
+        parsed_payload=updated_document.model_dump(mode="json"),
+    )
+    task.document = updated_document
+    domain = _GROUP_DOMAINS.get(result.group)
+    if domain is None:
+        raise AppError("unknown_rule_domain", "无法确定该问题所属的复核业务域。", 500)
+    base = CaseExtraction.model_validate(task.extractionPayload or {})
+    outcome = await run_template_review(
+        updated_document,
+        group_timings=task.timings.modelGroupsMs,
+        domains=(domain,),
+        base_extraction=base,
+    )
+    task.results = outcome.results
+    refreshed = next((item for item in task.results if item.ruleId == rule_id), None)
+    if refreshed is not None:
+        refreshed.manualDecision = ManualDecision(
+            status=ManualStatus.RESOLVED,
+            reason="已记录实际补问和答案并完成受影响域复核。",
+        )
+    _persist_outcome(task, outcome)
+    append_manual_event(
+        task.id,
+        issue_id=_issue_id(task.id, rule_id),
+        event_type="follow_up_answer",
+        actor_id=actor_id.strip() or "local-operator",
+        payload={"ruleId": rule_id, "question": question.strip(), "answer": answer.strip(), "documentVersionId": task.documentVersionId},
+    )
+    return save_task(task)
+
+
+async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> ReviewTask:
+    task = get_task(task_id)
+    if task is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    if task.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能重试。", 409)
+    if domain not in task.failedDomains:
+        raise AppError("domain_not_failed", "该业务域当前不在失败列表中。", 409)
+    if task.document is None:
+        raise AppError("document_not_available", "审查文档不可用，无法重试。", 409)
+    base = CaseExtraction.model_validate(task.extractionPayload or {})
+    outcome = await run_template_review(
+        task.document,
+        group_timings=task.timings.modelGroupsMs,
+        domains=(domain,),
+        base_extraction=base,
+    )
+    task.results = outcome.results
+    task.failedDomains = [value for value in task.failedDomains if value != domain]
+    task.status = TaskStatus.COMPLETED if not task.failedDomains else TaskStatus.FAILED
+    task.errorCode = None if not task.failedDomains else task.errorCode
+    task.errorMessage = None if not task.failedDomains else task.errorMessage
+    _persist_outcome(task, outcome)
+    append_manual_event(
+        task.id,
+        issue_id=None,
+        event_type="domain_retried",
+        actor_id=actor_id.strip() or "local-operator",
+        payload={"domain": domain, "completed": not task.failedDomains},
+    )
+    return save_task(task)
+
+
 def update_decision(task_id: str, rule_id: str, status: ManualStatus, reason: str):
     """人工分流 — 对某条规则结果做出处置决策。
 
@@ -200,20 +530,7 @@ def update_decision(task_id: str, rule_id: str, status: ManualStatus, reason: st
     Raises:
         AppError: 任务不存在、未完成、状态无效、规则结果不存在。
     """
-    task = get_task(task_id)
-    if task is None:
-        raise AppError("task_not_found", "审查任务不存在。", 404)
-    if task.status != TaskStatus.COMPLETED:
-        raise AppError("task_not_completed", "任务尚未完成，不能提交人工处理。", 409)
-    if status not in {ManualStatus.CONFIRMED, ManualStatus.SUPPLEMENTED, ManualStatus.IGNORED}:
-        raise AppError("invalid_decision", "人工处理状态无效。", 422)
-    result = next((item for item in task.results if item.ruleId == rule_id), None)
-    if result is None:
-        raise AppError("rule_result_not_found", "规则结果不存在。", 404)
-    result.manualDecision.status = status
-    result.manualDecision.reason = reason.strip()
-    save_task(task)
-    return result
+    return record_issue_action(task_id, rule_id, status, reason, "local-operator")
 
 
 def complete_review(task_id: str) -> ReviewTask:
@@ -229,15 +546,25 @@ def complete_review(task_id: str) -> ReviewTask:
     task = get_task(task_id)
     if task is None:
         raise AppError("task_not_found", "审查任务不存在。", 404)
-    pending = [
-        item for item in task.results
-        if item.status in {RuleStatus.MISSING, RuleStatus.INCOMPLETE}
-        and item.manualDecision.status == ManualStatus.PENDING
-    ]
-    if pending:
-        raise AppError("review_has_pending_results", f"还有 {len(pending)} 项待处置。", 409)
+    if task.documentVersionId:
+        assert_archive_ready(task)
+    else:
+        pending = [
+            item for item in task.results
+            if item.status in {RuleStatus.MISSING, RuleStatus.INCOMPLETE}
+            and item.manualDecision.status == ManualStatus.PENDING
+        ]
+        if pending:
+            raise AppError("review_has_pending_results", f"还有 {len(pending)} 项待处置。", 409)
     task.reviewStatus = ReviewStatus.ARCHIVED
     task.archivedAt = now_iso()
+    append_manual_event(
+        task.id,
+        issue_id=None,
+        event_type="archived",
+        actor_id="local-operator",
+        payload={"archivedAt": task.archivedAt},
+    )
     return save_task(task)
 
 
@@ -280,3 +607,5 @@ def report_data(task_id: str) -> dict:
         "reviewStatus": task.reviewStatus,
         "results": task.results,
     }
+    save_artifact_record,
+    save_document,

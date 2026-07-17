@@ -15,7 +15,10 @@ from app.errors import AppError
 from app.main import app
 from app.data import RULES, TEMPLATE_RULES
 from app.demo_cases import DEMO_CASES, load_demo_document
-from app.services import qwen
+from app.services import artifacts, qwen
+from app.services.artifacts import ArtifactStorage
+from app.services.template_extraction import TemplateReviewOutcome
+from app.template_models import CaseExtraction
 from app.services.analyzer import analyze_document
 from app import store
 from app.store import SqliteTaskStore
@@ -31,6 +34,7 @@ def _demo_document(index: int = 1):
 @pytest.fixture(autouse=True)
 def isolated_review_store(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
 
 
 def _docx_bytes(paragraphs: list[str]) -> bytes:
@@ -121,9 +125,13 @@ def _upload(filename: str, content: bytes):
     async def fixture_review(document, group_timings=None):
         if group_timings is not None:
             group_timings.update({"三现": 12, "四流": 18})
-        return analyze_document(document)
+        return TemplateReviewOutcome(
+            extraction=CaseExtraction(),
+            issues=[],
+            results=analyze_document(document),
+        )
 
-    with patch("app.services.review.review_template_document", side_effect=fixture_review):
+    with patch("app.services.review.run_template_review", side_effect=fixture_review):
         created = client.post(
             "/api/v1/reviews",
             data={"mode": "local"},

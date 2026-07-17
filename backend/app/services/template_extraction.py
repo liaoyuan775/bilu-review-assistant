@@ -1,5 +1,6 @@
 import json
 import logging
+from dataclasses import dataclass
 from time import perf_counter
 
 import httpx
@@ -93,13 +94,20 @@ DOMAIN_ENTITY_FIELDS = {
 }
 
 
+@dataclass
+class TemplateReviewOutcome:
+    extraction: CaseExtraction
+    issues: list[TemplateReviewIssue]
+    results: list[ReviewResult]
+
+
 def _fact_schema() -> dict:
     return {
         "type": "object",
         "properties": {
             "value": {"type": ["string", "number", "integer", "boolean", "null"]},
             "clarity": {"type": "string", "enum": ["clear", "unclear", "unknown", "missing"]},
-            "evidenceAnchorIds": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
+            "evidenceAnchorIds": {"type": "array", "items": {"type": "string"}},
             "sourceConfidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
         },
         "required": ["value", "clarity", "evidenceAnchorIds", "sourceConfidence"],
@@ -421,15 +429,38 @@ def _review_result(document: ParsedDocument, issue: TemplateReviewIssue) -> Revi
     )
 
 
-async def review_template_document(
+def _merge_refreshed_domains(
+    base: CaseExtraction,
+    refreshed: CaseExtraction,
+    domains: tuple[str, ...],
+) -> CaseExtraction:
+    merged = base.model_copy(deep=True)
+    for domain in domains:
+        for path in DOMAIN_FACT_PATHS[domain]:
+            if path in refreshed.facts:
+                merged.facts[path] = refreshed.facts[path]
+        for entity_type in DOMAIN_ENTITY_FIELDS[domain]:
+            if entity_type in refreshed.entities:
+                merged.entities[entity_type] = refreshed.entities[entity_type]
+    return merged
+
+
+async def run_template_review(
     document: ParsedDocument,
     *,
     group_timings: dict[str, int] | None = None,
     rules: list[TemplateRule] | None = None,
-) -> list[ReviewResult]:
+    domains: tuple[str, ...] = DOMAIN_ORDER,
+    base_extraction: CaseExtraction | None = None,
+) -> TemplateReviewOutcome:
     timings = group_timings if group_timings is not None else {}
     selected_rules = rules or TEMPLATE_RULES
-    extraction = await extract_template_facts(document, timings)
+    refreshed = await extract_template_facts(document, timings, domains=domains)
+    extraction = (
+        _merge_refreshed_domains(base_extraction, refreshed, domains)
+        if base_extraction is not None
+        else refreshed
+    )
     issues = evaluate_template_rules(extraction, selected_rules)
     ambiguous_ids = {
         issue.ruleId
@@ -446,4 +477,18 @@ async def review_template_document(
         [result.model_dump(mode="json") for result in results],
         rules=len(results),
     )
-    return results
+    return TemplateReviewOutcome(extraction=extraction, issues=issues, results=results)
+
+
+async def review_template_document(
+    document: ParsedDocument,
+    *,
+    group_timings: dict[str, int] | None = None,
+    rules: list[TemplateRule] | None = None,
+) -> list[ReviewResult]:
+    outcome = await run_template_review(
+        document,
+        group_timings=group_timings,
+        rules=rules,
+    )
+    return outcome.results

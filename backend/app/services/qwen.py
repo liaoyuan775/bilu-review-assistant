@@ -542,7 +542,15 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
     if not response.is_success:
         log_event(logging.WARNING, "qwen.request_http_failed", strategy=strategy, rule_ids=rule_ids, status_code=response.status_code, duration_ms=round((perf_counter() - started) * 1000))
         response_text = response.text.lower()
-        unsupported_markers = ("json_schema", "response_format", "tool_choice", "tool_calls", "tools")
+        unsupported_markers = (
+            "json_schema",
+            "response_format",
+            "tool_choice",
+            "tool_calls",
+            "tools",
+            "grammar error",
+            "unimplemented keys",
+        )
         # 400/422 + 不受支持的 Schema 关键字 → 服务端不支持 JSON Schema
         if strategy == "schema" and response.status_code in {400, 422} and any(marker in response_text for marker in unsupported_markers):
             raise AppError(

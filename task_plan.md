@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Task 7 - API 生命周期与归档门槛
+Task 8 - 民警模板审查工作台
 
 ## Execution Plan
 
@@ -16,7 +16,7 @@ Task 7 - API 生命周期与归档门槛
 - [x] Task 4: 版本化模板规则与确定性引擎
 - [x] Task 5: Qwen 证据事实抽取与定向复核
 - [x] Task 6: 文档、运行、问题、事件和产物持久化
-- [ ] Task 7: API 生命周期与归档门槛
+- [x] Task 7: API 生命周期与归档门槛
 - [ ] Task 8: 民警模板审查工作台
 - [ ] Task 9: PDF/DOCX/JSON 产出和归档清单
 - [ ] Task 10: 脱敏金标准与真实模型质量门槛
@@ -40,6 +40,7 @@ Task 7 - API 生命周期与归档门槛
 | Scanned-PDF API regression expected the pre-anchor paragraph schema | 4 | Assert the stable ID/range/bbox fields explicitly |
 | Unknown fact with evidence was classified as fully missing | 5 | Evaluate clarity before an empty normalized value so unknown remains incomplete |
 | Legacy Qwen protocol tests were routed through the new domain extractor | 6 | Keep legacy demo protocol coverage isolated while uploads use the template adapter |
+| Configured Qwen rejected the extraction schema `uniqueItems` keyword | 7 | Removed the unsupported keyword and added grammar-error tool fallback detection |
 
 ## References
 

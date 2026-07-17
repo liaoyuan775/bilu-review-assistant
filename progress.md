@@ -25,6 +25,9 @@
 - Published the 34 internal-template rules through the health and rule APIs instead of seven three/four-flow rules.
 - Added explicit SQLite schema v1 migrations for documents, versions, runs, facts, issues, append-only events, and artifacts while retaining legacy task snapshots.
 - Added controlled content-addressed original storage with traversal prevention, atomic writes, and SHA-256 verification on read.
+- Connected uploads to original/version/run/fact/issue/artifact audit records and exposed version, action, follow-up, retry, warning, download, and archive endpoints.
+- Added affected-domain follow-up re-review, append-only operator events, archived read-only enforcement, and explicit archive gates.
+- Removed the configured Qwen provider's unsupported `uniqueItems` schema keyword; a synthetic strict-schema request then returned HTTP 200.
 
 ## Verification Log
 
@@ -56,6 +59,12 @@
 | Task 6 full backend | `pytest -q tests` with actual template path | 88 passed |
 | Task 6 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 6 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 7 lifecycle and API | `pytest -q test_review_lifecycle.py test_template_store.py test_store.py test_api.py` | 48 passed |
+| Task 7 strict-schema live compatibility | synthetic `header_procedure` request using configured model | HTTP 200 |
+| Task 7 full backend | `pytest -q tests` with actual template path | 100 passed |
+| Task 7 OpenAPI export | `python scripts/export_openapi.py` | `docs/openapi.json` updated |
+| Task 7 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 7 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 
@@ -67,3 +76,4 @@
 | 2026-07-18 00:35 | Scanned-PDF API test expected the old three-field paragraph schema | 4 | Updated the contract assertion to include stable ID, offsets, and nullable bbox |
 | 2026-07-18 00:52 | A fact with `clarity=unknown`, evidence, and no normalized value was classified as missing | 5 | Separated missing facts from present-but-unclear facts before checking normalized value |
 | 2026-07-18 01:10 | Seven legacy Qwen transport tests received the new domain schema through the demo route | 6 | Kept demo protocol tests on the legacy adapter and switched only the upload pipeline to template extraction |
+| 2026-07-18 01:40 | Configured Qwen returned HTTP 400 with `Grammar error: Unimplemented keys: ["uniqueItems"]` | 7 | Added a provider-compatibility regression, removed `uniqueItems`, and verified the same strict schema returns HTTP 200 |

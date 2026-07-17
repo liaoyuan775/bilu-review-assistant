@@ -75,6 +75,19 @@ def test_domain_schema_is_strict_and_requires_all_declared_fact_paths():
     assert facts["properties"]["online_money.total"]["additionalProperties"] is False
 
 
+def test_domain_schema_avoids_provider_unsupported_unique_items_keyword():
+    def keys(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                yield key
+                yield from keys(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from keys(nested)
+
+    assert "uniqueItems" not in set(keys(template_extraction.template_extraction_schema("online_money")))
+
+
 def test_prompt_excludes_parenthetical_template_guidance():
     document = _document(
         "讲一下基本情况？（只能作为模板指导）",
