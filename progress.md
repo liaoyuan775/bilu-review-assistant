@@ -23,6 +23,8 @@
 - Excluded reconstructed template guidance from prompts and rejected missing, invalid, or guidance-only evidence anchors.
 - Routed uploads through template facts plus deterministic rules; retained the legacy demo adapter only as compatibility coverage.
 - Published the 34 internal-template rules through the health and rule APIs instead of seven three/four-flow rules.
+- Added explicit SQLite schema v1 migrations for documents, versions, runs, facts, issues, append-only events, and artifacts while retaining legacy task snapshots.
+- Added controlled content-addressed original storage with traversal prevention, atomic writes, and SHA-256 verification on read.
 
 ## Verification Log
 
@@ -50,6 +52,10 @@
 | Task 5 full backend | `pytest -q tests` with actual template path | 80 passed |
 | Task 5 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 5 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 6 persistence | `pytest -q test_template_store.py test_store.py` | 9 passed |
+| Task 6 full backend | `pytest -q tests` with actual template path | 88 passed |
+| Task 6 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 6 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 

@@ -22,3 +22,4 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB — 超过此大小直接拒绝
 
 # ── 持久化路径 ──────────────────────────────────────────────────
 REVIEW_DATABASE_PATH = Path(os.getenv("REVIEW_DATABASE_PATH", BACKEND_ROOT / "data" / "reviews.db"))
+REVIEW_ARTIFACT_ROOT = Path(os.getenv("REVIEW_ARTIFACT_ROOT", BACKEND_ROOT / "data" / "artifacts"))

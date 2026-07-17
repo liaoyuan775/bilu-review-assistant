@@ -1,54 +1,165 @@
-"""
-持久化层 — 基于 SQLite 的审查任务存储。
+"""SQLite persistence for task snapshots and replayable review audit records."""
 
-设计决策：
-- 使用 SQLite 而非内存存储，确保页面刷新后审查记录不丢失。
-- 采用 JSON 序列化整条 ReviewTask（payload_json），避免复杂的 ORM 映射。
-- 单表设计，id 为主键，支持 upsert（ON CONFLICT ... DO UPDATE）。
-- updated_at 字段用于列表排序，标识最近活跃的任务。
-
-并发说明：
-- SQLite 默认串行化写操作，单个后端进程下无需额外锁机制。
-"""
-
+import json
 from pathlib import Path
 import sqlite3
+from uuid import uuid4
 
 from app.config import REVIEW_DATABASE_PATH
 from app.models import ReviewTask, now_iso
 
 
+SCHEMA_VERSION = 1
+
+
 class SqliteTaskStore:
-    """基于 SQLite 的审查任务存储实现。
-
-    Args:
-        database_path: SQLite 数据库文件路径（自动创建父目录）。
-    """
-
     def __init__(self, database_path: Path):
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        """创建新的数据库连接（每次操作独立连接，避免跨请求竞争）。"""
-        return sqlite3.connect(self.database_path)
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
 
     def _initialize(self) -> None:
-        """初始化表结构（幂等 — IF NOT EXISTS）。"""
         with self._connect() as connection:
             connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS review_tasks (
-                    id TEXT PRIMARY KEY,
-                    updated_at TEXT NOT NULL,
-                    payload_json TEXT NOT NULL
-                )
-                """
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
             )
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"
+            ).fetchone()[0]
+            if current < 1:
+                self._migrate_v1(connection)
+                connection.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                    (1, now_iso()),
+                )
+            if current > SCHEMA_VERSION:
+                raise RuntimeError(f"Database schema {current} is newer than supported {SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate_v1(connection: sqlite3.Connection) -> None:
+        statements = (
+            """
+            CREATE TABLE IF NOT EXISTS review_tasks (
+                id TEXT PRIMARY KEY,
+                updated_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL UNIQUE,
+                filename TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES review_tasks(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS document_versions (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                version_number INTEGER NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                parsed_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(document_id, version_number),
+                FOREIGN KEY(document_id) REFERENCES documents(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS review_runs (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                document_version_id TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                timings_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY(task_id) REFERENCES review_tasks(id),
+                FOREIGN KEY(document_version_id) REFERENCES document_versions(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS extracted_facts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_id, path),
+                FOREIGN KEY(run_id) REFERENCES review_runs(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS review_issues (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                rule_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_id, rule_id),
+                FOREIGN KEY(run_id) REFERENCES review_runs(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS manual_events (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                issue_id TEXT,
+                event_type TEXT NOT NULL,
+                actor_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES review_tasks(id),
+                FOREIGN KEY(issue_id) REFERENCES review_issues(id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                document_version_id TEXT,
+                artifact_type TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                path TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                metadata_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(task_id) REFERENCES review_tasks(id),
+                FOREIGN KEY(document_version_id) REFERENCES document_versions(id)
+            )
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS manual_events_no_update
+            BEFORE UPDATE ON manual_events
+            BEGIN SELECT RAISE(ABORT, 'manual_events_append_only'); END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS manual_events_no_delete
+            BEFORE DELETE ON manual_events
+            BEGIN SELECT RAISE(ABORT, 'manual_events_append_only'); END
+            """,
+        )
+        for statement in statements:
+            connection.execute(statement)
+
+    def schema_version(self) -> int:
+        with self._connect() as connection:
+            return int(connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").fetchone()[0])
 
     def save_task(self, task: ReviewTask) -> ReviewTask:
-        """保存或更新审查任务（upsert 语义 — 按 id 去重）。"""
         task.updatedAt = now_iso()
         with self._connect() as connection:
             connection.execute(
@@ -64,7 +175,6 @@ class SqliteTaskStore:
         return task
 
     def get_task(self, task_id: str) -> ReviewTask | None:
-        """按 ID 获取审查任务，不存在时返回 None。"""
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT payload_json FROM review_tasks WHERE id = ?",
@@ -73,28 +183,218 @@ class SqliteTaskStore:
         return ReviewTask.model_validate_json(row[0]) if row else None
 
     def list_tasks(self) -> list[ReviewTask]:
-        """按更新时间降序返回全部任务（最新优先）。"""
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT payload_json FROM review_tasks ORDER BY updated_at DESC"
             ).fetchall()
         return [ReviewTask.model_validate_json(row[0]) for row in rows]
 
+    def save_document(
+        self,
+        task_id: str,
+        *,
+        filename: str,
+        mime_type: str,
+        sha256: str,
+        original_path: str,
+    ) -> str:
+        document_id = str(uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO documents (id, task_id, filename, mime_type, sha256, original_path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (document_id, task_id, filename, mime_type, sha256, original_path, now_iso()),
+            )
+        return document_id
 
-# ── 模块级单例 ──────────────────────────────────────────────────
+    def save_document_version(
+        self,
+        document_id: str,
+        *,
+        content_sha256: str,
+        parsed_payload: dict,
+    ) -> str:
+        version_id = str(uuid4())
+        with self._connect() as connection:
+            version_number = int(connection.execute(
+                "SELECT COALESCE(MAX(version_number), 0) + 1 FROM document_versions WHERE document_id = ?",
+                (document_id,),
+            ).fetchone()[0])
+            connection.execute(
+                """
+                INSERT INTO document_versions
+                    (id, document_id, version_number, content_sha256, parsed_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (version_id, document_id, version_number, content_sha256, _json(parsed_payload), now_iso()),
+            )
+        return version_id
+
+    def save_review_run(
+        self,
+        task_id: str,
+        document_version_id: str,
+        *,
+        rule_version: str,
+        model: str,
+        status: str,
+        timings: dict,
+    ) -> str:
+        run_id = str(uuid4())
+        completed_at = now_iso() if status == "completed" else None
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO review_runs
+                    (id, task_id, document_version_id, rule_version, model, status, timings_json, created_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, task_id, document_version_id, rule_version, model, status, _json(timings), now_iso(), completed_at),
+            )
+        return run_id
+
+    def save_extracted_fact(self, run_id: str, path: str, payload: dict) -> str:
+        record_id = str(uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO extracted_facts (id, run_id, path, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (record_id, run_id, path, _json(payload), now_iso()),
+            )
+        return record_id
+
+    def save_review_issue(self, run_id: str, rule_id: str, payload: dict) -> str:
+        issue_id = str(uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO review_issues (id, run_id, rule_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (issue_id, run_id, rule_id, _json(payload), now_iso()),
+            )
+        return issue_id
+
+    def append_manual_event(
+        self,
+        task_id: str,
+        *,
+        issue_id: str | None,
+        event_type: str,
+        actor_id: str,
+        payload: dict,
+    ) -> str:
+        event_id = str(uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO manual_events
+                    (id, task_id, issue_id, event_type, actor_id, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, task_id, issue_id, event_type, actor_id, _json(payload), now_iso()),
+            )
+        return event_id
+
+    def save_artifact_record(
+        self,
+        task_id: str,
+        document_version_id: str | None,
+        *,
+        artifact_type: str,
+        filename: str,
+        path: str,
+        sha256: str,
+        size_bytes: int,
+        metadata: dict,
+    ) -> str:
+        artifact_id = str(uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO artifacts
+                    (id, task_id, document_version_id, artifact_type, filename, path, sha256, size_bytes, metadata_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (artifact_id, task_id, document_version_id, artifact_type, filename, path, sha256, size_bytes, _json(metadata), now_iso()),
+            )
+        return artifact_id
+
+    def get_audit_snapshot(self, task_id: str) -> dict:
+        with self._connect() as connection:
+            document = connection.execute(
+                "SELECT * FROM documents WHERE task_id = ? ORDER BY created_at LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            versions = connection.execute(
+                """
+                SELECT document_versions.* FROM document_versions
+                JOIN documents ON documents.id = document_versions.document_id
+                WHERE documents.task_id = ? ORDER BY version_number
+                """,
+                (task_id,),
+            ).fetchall()
+            runs = connection.execute(
+                "SELECT * FROM review_runs WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+            facts = connection.execute(
+                """
+                SELECT extracted_facts.* FROM extracted_facts
+                JOIN review_runs ON review_runs.id = extracted_facts.run_id
+                WHERE review_runs.task_id = ? ORDER BY extracted_facts.created_at
+                """,
+                (task_id,),
+            ).fetchall()
+            issues = connection.execute(
+                """
+                SELECT review_issues.* FROM review_issues
+                JOIN review_runs ON review_runs.id = review_issues.run_id
+                WHERE review_runs.task_id = ? ORDER BY review_issues.created_at
+                """,
+                (task_id,),
+            ).fetchall()
+            events = connection.execute(
+                "SELECT * FROM manual_events WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+            artifacts = connection.execute(
+                "SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at",
+                (task_id,),
+            ).fetchall()
+        return {
+            "document": _row(document),
+            "versions": [_row(row) for row in versions],
+            "runs": [_row(row) for row in runs],
+            "facts": [_row(row) for row in facts],
+            "issues": [_row(row) for row in issues],
+            "events": [_row(row) for row in events],
+            "artifacts": [_row(row) for row in artifacts],
+        }
+
+
+def _json(value: dict) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+
+
+def _row(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+        return None
+    value = dict(row)
+    for key in tuple(value):
+        if key.endswith("_json"):
+            value[key[:-5]] = json.loads(value.pop(key))
+    return value
+
+
 STORE = SqliteTaskStore(REVIEW_DATABASE_PATH)
 
 
 def save_task(task: ReviewTask) -> ReviewTask:
-    """保存任务到持久化存储。"""
     return STORE.save_task(task)
 
 
 def get_task(task_id: str) -> ReviewTask | None:
-    """从持久化存储获取任务。"""
     return STORE.get_task(task_id)
 
 
 def list_tasks() -> list[ReviewTask]:
-    """列出所有任务（按更新时间降序）。"""
     return STORE.list_tasks()
