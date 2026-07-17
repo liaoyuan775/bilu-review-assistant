@@ -6,14 +6,14 @@
 
 ## Current Phase
 
-Task 4 - 版本化模板规则与确定性引擎
+Task 5 - Qwen 证据事实抽取与定向复核
 
 ## Execution Plan
 
 - [x] Task 1: 隔离基线与损坏媒体模板回归
 - [x] Task 2: 容错 DOCX/PDF 解析和精确锚点
 - [x] Task 3: 问答重建与模板说明隔离
-- [ ] Task 4: 版本化模板规则与确定性引擎
+- [x] Task 4: 版本化模板规则与确定性引擎
 - [ ] Task 5: Qwen 证据事实抽取与定向复核
 - [ ] Task 6: 文档、运行、问题、事件和产物持久化
 - [ ] Task 7: API 生命周期与归档门槛
@@ -38,6 +38,7 @@ Task 4 - 版本化模板规则与确定性引擎
 | Question oracle omitted one same-paragraph question | 2 | Corrected structural count to 33 markers |
 | Header/footer preservation changed the actual-template total from 144 to 145 blocks | 3 | Count the 144 body/table blocks separately from the retained footer |
 | Scanned-PDF API regression expected the pre-anchor paragraph schema | 4 | Assert the stable ID/range/bbox fields explicitly |
+| Unknown fact with evidence was classified as fully missing | 5 | Evaluate clarity before an empty normalized value so unknown remains incomplete |
 
 ## References
 

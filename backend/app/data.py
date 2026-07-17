@@ -1,13 +1,13 @@
-"""
-数据层 — 审查规则定义。
-
-职责边界：
-- RULES: 从 rules.json 加载"三现四流"工作规则，是模型审查的唯一依据。
-规则文件 rules.json 由办案机关维护，后端仅做加载不做修改。
-"""
+"""Versioned rule catalogs used by the legacy and template review paths."""
 
 import json
 from pathlib import Path
 
+from app.template_models import TemplateRuleCatalog
+
 ROOT = Path(__file__).resolve().parent.parent
 RULES: list[dict] = json.loads((ROOT / "rules.json").read_text(encoding="utf-8"))
+TEMPLATE_RULE_CATALOG = TemplateRuleCatalog.model_validate_json(
+    (ROOT / "template_rules.json").read_text(encoding="utf-8")
+)
+TEMPLATE_RULES = TEMPLATE_RULE_CATALOG.rules

@@ -57,7 +57,9 @@ class RuleStatus(StrEnum):
     COVERED = "covered"                # 全部强制事实已覆盖
     MISSING = "missing"                # 全部强制事实缺失
     INCOMPLETE = "incomplete"          # 部分覆盖（含回答"不知道"等）
+    INCONSISTENT = "inconsistent"      # 数量、金额、时间或引用关系矛盾
     NOT_APPLICABLE = "not_applicable"  # 条件规则不适用（笔录无触发事实）
+    NEEDS_MANUAL_REVIEW = "needs_manual_review"  # 事实或适用性无法可靠判断
 
 
 class ManualStatus(StrEnum):

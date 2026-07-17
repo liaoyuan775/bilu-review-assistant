@@ -17,6 +17,8 @@
 - Reconstructed same-paragraph, cross-paragraph, and cross-page question/answer blocks with stable source anchors.
 - Separated parenthetical template guidance from case answers and classified blank/unclear answers deterministically.
 - Verified the supplied template reconstructs exactly 33 question/answer blocks and keeps basic-information guidance out of facts.
+- Added a versioned internal-template catalog with source SHA-256, 33 source-backed question rules, one structural rule, and all 15 review groups.
+- Added a network-free deterministic engine for applicability, required facts, repeated entities, amount relationships, and chronology.
 
 ## Verification Log
 
@@ -36,6 +38,10 @@
 | Task 3 full backend | `pytest -q tests` with actual template path | 61 passed |
 | Task 3 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 3 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 4 catalog and engine | `pytest -q test_template_rule_catalog.py test_template_rule_engine.py` | 10 passed |
+| Task 4 full backend | `pytest -q tests` with actual template path | 71 passed |
+| Task 4 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 4 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 
@@ -45,3 +51,4 @@
 | 2026-07-18 00:25 | Test counted only the 32 paragraph-leading questions | 2 | Corrected oracle to 33 question markers: 32 paragraph-leading plus one same-paragraph rights-notice question |
 | 2026-07-18 00:35 | Header/footer preservation made the actual-template aggregate block count 145 | 3 | Verified the source split is 144 native body blocks plus one footer and scoped the assertion accordingly |
 | 2026-07-18 00:35 | Scanned-PDF API test expected the old three-field paragraph schema | 4 | Updated the contract assertion to include stable ID, offsets, and nullable bbox |
+| 2026-07-18 00:52 | A fact with `clarity=unknown`, evidence, and no normalized value was classified as missing | 5 | Separated missing facts from present-but-unclear facts before checking normalized value |
