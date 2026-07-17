@@ -11,6 +11,12 @@ from app.models import now_iso
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _INVALID_FILENAME = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
+GENERATED_REVIEW_ARTIFACT_TYPES = (
+    "review_pdf",
+    "follow_up_docx",
+    "structured_json",
+    "archive_manifest",
+)
 
 
 @dataclass(frozen=True)
@@ -31,10 +37,30 @@ class ArtifactStorage:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def save_original(self, task_id: str, filename: str, content: bytes) -> DocumentArtifact:
+        return self._save(task_id, "original", filename, content)
+
+    def save_generated(
+        self,
+        task_id: str,
+        artifact_type: str,
+        filename: str,
+        content: bytes,
+    ) -> DocumentArtifact:
+        if artifact_type not in GENERATED_REVIEW_ARTIFACT_TYPES:
+            raise AppError("invalid_artifact_type", "归档产物类型无效。", 422)
+        return self._save(task_id, artifact_type, filename, content)
+
+    def _save(
+        self,
+        task_id: str,
+        artifact_type: str,
+        filename: str,
+        content: bytes,
+    ) -> DocumentArtifact:
         safe_task_id = self._task_id(task_id)
         safe_filename = self._filename(filename)
         digest = sha256(content).hexdigest()
-        directory = (self.root / safe_task_id / "original").resolve()
+        directory = (self.root / safe_task_id / artifact_type).resolve()
         if not directory.is_relative_to(self.root):
             raise AppError("invalid_artifact_path", "产物路径超出受控目录。", 422)
         directory.mkdir(parents=True, exist_ok=True)
@@ -55,7 +81,7 @@ class ArtifactStorage:
             path=target,
             sha256=digest,
             sizeBytes=len(content),
-            artifactType="original",
+            artifactType=artifact_type,
             createdAt=now_iso(),
         )
 
@@ -93,6 +119,15 @@ ARTIFACT_STORAGE = ArtifactStorage(REVIEW_ARTIFACT_ROOT)
 
 def save_original(task_id: str, filename: str, content: bytes) -> DocumentArtifact:
     return ARTIFACT_STORAGE.save_original(task_id, filename, content)
+
+
+def save_generated(
+    task_id: str,
+    artifact_type: str,
+    filename: str,
+    content: bytes,
+) -> DocumentArtifact:
+    return ARTIFACT_STORAGE.save_generated(task_id, artifact_type, filename, content)
 
 
 def read_artifact_record(record: dict) -> bytes:

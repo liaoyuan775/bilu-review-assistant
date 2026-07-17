@@ -346,6 +346,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .template-header-actions { margin-left: auto; display: flex; align-items: center; gap: 7px; }
 .artifact-link { min-height: 30px; display: inline-flex; align-items: center; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 4px; color: #40536b; background: #fff; font-size: 11px; text-decoration: none; }
 .artifact-link:hover { color: var(--primary); border-color: #9ebfe8; }
+.artifact-generate { gap: 5px; cursor: pointer; font: inherit; }
+.artifact-generate:disabled { cursor: wait; opacity: 0.65; }
 .review-alert-band { display: flex; flex-wrap: wrap; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .review-alert-band > div { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border-left: 3px solid #c78512; color: #714d08; background: #fff9eb; font-size: 12px; }
 .review-alert-band button { margin-left: 6px; display: inline-flex; align-items: center; gap: 4px; border: 0; color: #0b5fae; background: transparent; cursor: pointer; font: inherit; font-weight: 700; }

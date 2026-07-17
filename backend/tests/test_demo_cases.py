@@ -71,7 +71,7 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
     assert task["documentId"]
     assert task["documentVersionId"]
     assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
-    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json"]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
     assert [result["ruleId"] for result in task["results"]] == [
         rule.ruleId for rule in TEMPLATE_RULE_CATALOG.rules
     ]

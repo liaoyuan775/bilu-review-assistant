@@ -138,6 +138,11 @@ export const getReviewVersions = async (taskId: string) => {
 export const artifactDownloadUrl = (taskId: string, artifactId: string) =>
   `/api/v1/reviews/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(artifactId)}`;
 
+export const generateReviewArtifacts = async (taskId: string) =>
+  parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${encodeURIComponent(taskId)}/artifacts/generate`, {
+    method: "POST",
+  }));
+
 /** 完成复核并归档。 */
 export const archiveReview = async (taskId: string) =>
   parseResponse<{ reviewStatus: "archived"; archivedAt: string }>(await fetch(`/api/v1/reviews/${taskId}/archive`, { method: "POST" }));

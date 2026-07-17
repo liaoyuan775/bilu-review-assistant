@@ -178,7 +178,7 @@ def test_demo_review_decisions_block_archive_until_artifacts_exist():
     task = client.get(f"/api/v1/reviews/{task_id}").json()
     assert task["status"] == "completed"
     assert len(task["results"]) == len(TEMPLATE_RULES)
-    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json"]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
     assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
     blocked = client.post(f"/api/v1/reviews/{task_id}/complete")
     assert blocked.status_code == 409

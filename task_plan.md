@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Task 9 - PDF/DOCX/JSON 产出和归档清单
+Task 10 - 脱敏金标准与真实模型质量门槛
 
 ## Execution Plan
 
@@ -18,7 +18,7 @@ Task 9 - PDF/DOCX/JSON 产出和归档清单
 - [x] Task 6: 文档、运行、问题、事件和产物持久化
 - [x] Task 7: API 生命周期与归档门槛
 - [x] Task 8: 民警模板审查工作台
-- [ ] Task 9: PDF/DOCX/JSON 产出和归档清单
+- [x] Task 9: PDF/DOCX/JSON 产出和归档清单
 - [ ] Task 10: 脱敏金标准与真实模型质量门槛
 - [ ] Task 11: 质量不下降的性能评测与优化
 - [ ] Task 12: 端到端验证、推送和合并 main

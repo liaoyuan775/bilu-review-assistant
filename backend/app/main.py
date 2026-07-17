@@ -51,6 +51,7 @@ from app.models import (
 )
 from app.services.artifacts import read_artifact_record
 from app.services.qwen import check_qwen
+from app.services.reports import generate_review_artifacts
 from app.services.review import (
     acknowledge_warnings,
     artifact_record,
@@ -213,6 +214,11 @@ async def retry_review_domain(task_id: str, domain: str, payload: RetryDomainReq
 @app.post("/api/v1/reviews/{task_id}/warnings/acknowledge", response_model=ReviewTask)
 async def acknowledge_review_warnings(task_id: str, payload: WarningAcknowledgementRequest):
     return acknowledge_warnings(task_id, payload.codes, payload.actorId)
+
+
+@app.post("/api/v1/reviews/{task_id}/artifacts/generate", response_model=ReviewTask)
+async def generate_artifacts(task_id: str):
+    return generate_review_artifacts(task_id)
 
 
 @app.get("/api/v1/reviews/{task_id}/artifacts/{artifact_id}")

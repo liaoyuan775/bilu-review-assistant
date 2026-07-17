@@ -36,3 +36,15 @@
 - Post-fix browser measurements at 390x844 are exact fits: metrics 350/350, archive gates 350/350, document scroll 334/334, and page 313/313. The long URL wraps and no nested horizontal scrolling remains.
 - The supplied WeChat temporary template path no longer exists and no matching DOCX remains under its July temp root. The optional actual-template integration test must therefore run without `BILU_TEMPLATE_PATH` in this session; prior exact 144-body-block/33-question evidence remains recorded.
 - Full-suite legacy failures were test-boundary drift: transport tests still reached the demo API even though demos now correctly use the template pipeline. Legacy protocol coverage is retained by direct `qwen.review_with_qwen` calls; product API assertions now use the 34-rule contract and artifact archive gate.
+
+## 2026-07-18 Task 9 artifact generation
+
+- Backend venv has `python-docx`, PyMuPDF, and pypdf but not ReportLab. Bundled Poppler exposes `pdftoppm` and `pdfinfo`; LibreOffice is unavailable.
+- Generate artifacts explicitly after operator handling so reports cannot silently predate follow-up actions. Require `review_pdf`, `follow_up_docx`, `structured_json`, and `archive_manifest`; manual mutations must invalidate derived summaries until regeneration.
+- Use python-docx with PAGE/NUMPAGES fields for the follow-up document and pinned ReportLab for the Chinese PDF, then render every page through bundled Poppler.
+- Fresh Task 9 browser state exposes `生成归档产物`, reports four missing artifacts, keeps archive disabled, and retains the high-risk follow-up gate before generation.
+- Live Task 9 flow generated four links, cleared all gates, archived successfully, and kept downloads available in read-only state.
+- PDF pages 1-4 have no clipping or overlap, but CID font substitution visibly inserts spaces inside Latin rule IDs and severity/model words. This fails document polish; embed Microsoft YaHei and regenerate before inspecting all pages.
+- After embedding Microsoft YaHei, regenerated PDF pages 1-4 show intact rule IDs, model names, `mock`, and severity words with no clipping, overlap, missing glyphs, or substitution warnings. Pagination remains A4, 8 pages.
+- PDF pages 5-8 also pass visual inspection; the manual-log/disclaimer section is intentionally isolated on the final page and footer numbering is continuous through 8/8.
+- Word rendering exposed the python-docx default Letter page size. Added a regression requiring 21.0 x 29.7 cm and set the generated DOCX section to A4.

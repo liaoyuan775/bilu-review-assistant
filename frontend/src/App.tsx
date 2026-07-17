@@ -53,7 +53,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
+import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
 import { evidenceLocationsFor, isEvidencePage, isEvidenceParagraph } from "./evidenceSelection";
 import { getReviewErrorTitle } from "./errorPresentation";
 import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
@@ -285,6 +285,16 @@ function App() {
     }
   };
 
+  const generateArtifacts = async () => {
+    try {
+      setTask(await generateReviewArtifacts(task.id));
+      showToast("归档产物已生成并完成哈希登记");
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "归档产物生成失败");
+      throw error;
+    }
+  };
+
   /** 完成复核并归档（所有待处置项必须已分流）。 */
   const finishReview = async () => {
     try {
@@ -454,6 +464,7 @@ function App() {
             onBack={() => setView("new")}
             onAction={updateManualDecision}
             onFollowUp={saveFollowUpAnswer}
+            onGenerateArtifacts={generateArtifacts}
             onArchive={finishReview}
             onShowReport={openReport}
             onAcknowledgeWarnings={confirmWarnings}

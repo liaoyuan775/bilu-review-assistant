@@ -40,6 +40,12 @@
 - Restored the browser to 1440x900 at the page top and captured the final desktop regression screenshot for visual inspection.
 - Updated stale legacy transport tests to call the compatibility adapter directly while product demos remain on the 34-rule template pipeline.
 - Task 8 complete: desktop/mobile browser QA passed, mock follow-up lifecycle passed, console remained clean, and full backend regression returned 99 passed / 1 optional actual-template skip after the temporary WeChat source disappeared.
+- Task 9 RED/GREEN backend complete: four new report/archive tests pass, including PDF/DOCX/JSON content, manifest hashes, immutable archive, and tamper rejection. Related backend suite is 48 passed; frontend remains 41 passed and production build succeeds.
+- Task 9 browser flow reached post-follow-up state on a fresh persisted demo; high-risk issue resolved and derived artifacts remain invalidated pending explicit generation.
+- Browser generated all four artifacts, enabled archive, and successfully entered immutable archived state. Downloaded the live PDF/DOCX/JSON/manifest to `tmp/docs/task9-live` with recorded SHA-256 values.
+- Re-rendered the final eight-page review PDF with embedded Microsoft YaHei and visually inspected every page; Chinese labels, evidence wrapping, page numbers, and the operation-record page have no clipping, overlap, or missing glyphs.
+- Restarted the backend, generated the latest A4 follow-up DOCX through the live API, exported it with Microsoft Word, and visually verified the rendered page including Chinese status labels and dynamic PAGE/NUMPAGES fields.
+- Task 9 complete: full backend returned 103 passed / 1 optional actual-template skip, frontend returned 41 passed, production build succeeded, OpenAPI was regenerated, and `git diff --check` was clean before the phase commit.
 
 ## Verification Log
 
@@ -83,6 +89,13 @@
 | Task 8 browser QA | Playwright CLI, Edge, 1440x900 and 390x844 | Dynamic template groups, exact anchors, follow-up re-review, zero console errors, no nested horizontal overflow |
 | Task 8 selected backend | `pytest -q test_api.py test_demo_cases.py` | 33 passed |
 | Task 8 full backend | `pytest -q backend/tests` | 99 passed, 1 optional actual-template test skipped |
+| Task 9 report/archive tests | `pytest -q test_reports.py test_archive_manifest.py ...` | 48 passed |
+| Task 9 frontend regression | `npm --prefix frontend run test` | 11 files / 41 tests passed |
+| Task 9 frontend production build | `npm --prefix frontend run build` | 1754 modules transformed, exit 0 |
+| Task 9 final PDF visual QA | ReportLab PDF -> Poppler PNG, all pages inspected | 8/8 pages readable; no clipping, overlap, or missing glyphs |
+| Task 9 final DOCX visual QA | live API -> Word PDF export -> Poppler PNG | A4, 1/1 page; Chinese labels and dynamic footer verified |
+| Task 9 full backend | `backend\.venv\Scripts\python.exe -m pytest -q backend\tests` | 103 passed, 1 optional actual-template test skipped |
+| Task 9 OpenAPI export | `backend\.venv\Scripts\python.exe backend\scripts\export_openapi.py` | `docs/openapi.json` updated |
 
 ## Error Log
 
@@ -99,3 +112,7 @@
 | 2026-07-18 03:25 | Task 8 demo contract tests returned seven legacy rules; the Qwen demo test also reached the legacy live endpoint | 9 | RED confirmed the orchestration defect; tests now forbid the legacy entry point and production demos use the template paths |
 | 2026-07-18 03:45 | Playwright CLI `run-code` rejected a raw `await page.screenshot(...)` expression | 10 | Use the documented screenshot command/options instead; application state was unaffected |
 | 2026-07-18 03:57 | Full backend regression: 11 failed / 89 passed | 11 | Ten failures are stale tests coupling legacy Qwen transport to the now-template demo API; one is the expired WeChat temporary template path. Update test boundaries and locate a current source copy, without restoring legacy product behavior |
+| 2026-07-18 04:12 | `pip install reportlab==4.4.9` timed out while downloading the Pillow wheel | 12 | Retry once with a 120-second read timeout; fall back to installed PyMuPDF if the dependency remains unavailable |
+| 2026-07-18 04:31 | Bundled Poppler wrapper returned `The system cannot find the path specified` | 13 | Inspect the wrapper and invoke its resolved runtime executable explicitly before changing the PDF implementation |
+| 2026-07-18 04:37 | Word COM exported the DOCX successfully, then `Quit()` returned RPC unavailable | 14 | Confirm output and process cleanup; treat as post-export automation cleanup if no WINWORD process remains |
+| 2026-07-18 04:41 | Windows PowerShell 5 rejected `Invoke-RestMethod -NoProxy` | 15 | Remove the unsupported parameter for localhost; no task or artifact was created by the failed script |

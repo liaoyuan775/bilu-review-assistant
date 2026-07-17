@@ -11,6 +11,7 @@ import {
   CircleSlash2,
   Clock3,
   FileText,
+  FileDown,
   ListChecks,
   RefreshCw,
   Search,
@@ -65,6 +66,7 @@ interface TemplateReviewViewProps {
   onBack: () => void;
   onAction: (ruleId: string, status: ManualStatus, reason?: string) => Promise<boolean>;
   onFollowUp: (ruleId: string, question: string, answer: string) => Promise<void>;
+  onGenerateArtifacts: () => Promise<void>;
   onArchive: () => Promise<void>;
   onShowReport: () => void;
   onAcknowledgeWarnings: (codes: string[]) => Promise<void>;
@@ -80,6 +82,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
     onBack,
     onAction,
     onFollowUp,
+    onGenerateArtifacts,
     onArchive,
     onShowReport,
     onAcknowledgeWarnings,
@@ -91,6 +94,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
   const [documentCollapsed, setDocumentCollapsed] = useState(false);
   const [followUpRuleId, setFollowUpRuleId] = useState<string | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
+  const [generatingArtifacts, setGeneratingArtifacts] = useState(false);
   const selected = task.results.find((item) => item.ruleId === selectedRuleId) ?? null;
   const followUpItem = task.results.find((item) => item.ruleId === followUpRuleId) ?? null;
   const counts = countTemplateStatuses(task.results);
@@ -110,6 +114,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
   }, [filter, search, task.results]);
   const groups = groupTemplateResults(visible);
   const readOnly = task.reviewStatus === "archived";
+  const missingArtifacts = blockers.some((blocker) => blocker.code === "missing_artifacts");
   const entities = readEntities(task.extractionPayload);
 
   const act = async (item: ReviewResult, status: ManualStatus) => {
@@ -135,6 +140,22 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
           <p>模板规则 {task.results.length} 项 · 文档版本 {task.documentVersionId?.slice(0, 8) ?? "-"}</p>
         </div>
         <div className="template-header-actions">
+          {!readOnly && missingArtifacts && (
+            <button
+              className="artifact-link artifact-generate"
+              disabled={generatingArtifacts}
+              onClick={async () => {
+                setGeneratingArtifacts(true);
+                try {
+                  await onGenerateArtifacts();
+                } finally {
+                  setGeneratingArtifacts(false);
+                }
+              }}
+            >
+              <FileDown size={15} />{generatingArtifacts ? "正在生成" : "生成归档产物"}
+            </button>
+          )}
           {task.artifacts.map((artifact) => (
             <a key={artifact.id} className="artifact-link" href={artifactDownloadUrl(task.id, artifact.id)}>{artifactLabel(artifact.type)}</a>
           ))}
@@ -267,4 +288,5 @@ const artifactLabel = (type: string) => ({
   review_pdf: "报告 PDF",
   follow_up_docx: "补问 DOCX",
   structured_json: "结构 JSON",
+  archive_manifest: "归档清单",
 }[type] ?? type);

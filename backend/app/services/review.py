@@ -32,8 +32,8 @@ from app.data import TEMPLATE_RULE_CATALOG
 from app.development_logging import log_event, log_payload, reset_task_id, set_task_id
 from app.errors import AppError
 from app.models import ArtifactSummary, DocumentParagraph, ManualDecision, ManualStatus, ReviewMode, ReviewStatus, ReviewTask, RuleStatus, SourceType, TaskStatus, now_iso
-from app.services.archive import assert_archive_ready
-from app.services.artifacts import save_original
+from app.services.archive import assert_archive_ready, verify_archive_artifacts
+from app.services.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_original
 from app.services.question_answer import reconstruct_question_answers
 from app.services.mock_review import build_mock_review
 from app.services.parser import parse_document
@@ -74,7 +74,12 @@ _GROUP_DOMAINS = {
     "EXTRA": "special_scenarios",
 }
 
-_REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx", "structured_json"]
+_REQUIRED_ARTIFACTS = list(GENERATED_REVIEW_ARTIFACT_TYPES)
+
+
+def _invalidate_generated_artifacts(task: ReviewTask) -> None:
+    task.requiredArtifacts = list(GENERATED_REVIEW_ARTIFACT_TYPES)
+    task.artifacts = [item for item in task.artifacts if item.type == "original"]
 
 
 def create_task(mode: ReviewMode) -> ReviewTask:
@@ -374,6 +379,7 @@ def record_issue_action(
     previous = result.manualDecision.model_dump(mode="json")
     result.manualDecision.status = status
     result.manualDecision.reason = normalized_reason
+    _invalidate_generated_artifacts(task)
     append_manual_event(
         task.id,
         issue_id=_issue_id(task.id, rule_id),
@@ -400,6 +406,7 @@ def acknowledge_warnings(task_id: str, codes: list[str], actor_id: str) -> Revie
     if unknown:
         raise AppError("warning_not_found", "包含当前文档不存在的告警代码。", 404)
     task.acknowledgedWarnings = list(dict.fromkeys([*task.acknowledgedWarnings, *codes]))
+    _invalidate_generated_artifacts(task)
     append_manual_event(
         task.id,
         issue_id=None,
@@ -516,6 +523,7 @@ async def record_follow_up_answer(
             status=ManualStatus.RESOLVED,
             reason="已记录实际补问和答案并完成受影响域复核。",
         )
+    _invalidate_generated_artifacts(task)
     append_manual_event(
         task.id,
         issue_id=_issue_id(task.id, rule_id),
@@ -549,6 +557,7 @@ async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> Revie
     task.errorCode = None if not task.failedDomains else task.errorCode
     task.errorMessage = None if not task.failedDomains else task.errorMessage
     _persist_outcome(task, outcome)
+    _invalidate_generated_artifacts(task)
     append_manual_event(
         task.id,
         issue_id=None,
@@ -589,6 +598,7 @@ def complete_review(task_id: str) -> ReviewTask:
         raise AppError("task_not_found", "审查任务不存在。", 404)
     if task.documentVersionId:
         assert_archive_ready(task)
+        verify_archive_artifacts(task)
     else:
         pending = [
             item for item in task.results

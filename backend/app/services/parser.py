@@ -13,6 +13,9 @@ from app.services.question_answer import reconstruct_question_answers
 from app.services.vision import transcribe_image
 
 
+PARSER_VERSION = "openxml-pymupdf-v1"
+
+
 _QUESTION_PAIR_BOUNDARIES = (
     "询问结束",
     "被询问人已逐页核对",

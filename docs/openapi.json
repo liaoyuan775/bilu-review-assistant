@@ -458,6 +458,45 @@
         }
       }
     },
+    "/api/v1/reviews/{task_id}/artifacts/generate": {
+      "post": {
+        "summary": "Generate Artifacts",
+        "operationId": "generate_artifacts_api_v1_reviews__task_id__artifacts_generate_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reviews/{task_id}/artifacts/{artifact_id}": {
       "get": {
         "summary": "Download Review Artifact",

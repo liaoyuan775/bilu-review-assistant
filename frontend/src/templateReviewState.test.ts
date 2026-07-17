@@ -52,8 +52,9 @@ const task = (overrides: Partial<ReviewTask> = {}): ReviewTask => ({
     { id: "a1", type: "review_pdf", filename: "review.pdf", sha256: "a".repeat(64), sizeBytes: 1 },
     { id: "a2", type: "follow_up_docx", filename: "follow-up.docx", sha256: "b".repeat(64), sizeBytes: 1 },
     { id: "a3", type: "structured_json", filename: "review.json", sha256: "c".repeat(64), sizeBytes: 1 },
+    { id: "a4", type: "archive_manifest", filename: "manifest.json", sha256: "d".repeat(64), sizeBytes: 1 },
   ],
-  requiredArtifacts: ["review_pdf", "follow_up_docx", "structured_json"],
+  requiredArtifacts: ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"],
   reviewStatus: "in_review" as ReviewStatus,
   archivedAt: null,
   createdAt: "2026-07-18T00:00:00Z",
@@ -129,4 +130,3 @@ describe("template review state", () => {
     ]);
   });
 });
-

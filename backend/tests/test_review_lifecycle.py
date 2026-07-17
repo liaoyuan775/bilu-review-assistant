@@ -34,7 +34,7 @@ from app.template_models import CaseExtraction, ExtractedFact, TemplateReviewIss
 from app.main import app
 
 
-REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx", "structured_json"]
+REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
 
 
 def _task() -> ReviewTask:
