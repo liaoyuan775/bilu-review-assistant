@@ -592,6 +592,81 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
     return message
 
 
+async def request_structured_payload(
+    client: httpx.AsyncClient,
+    *,
+    messages: list[dict],
+    schema: dict,
+    schema_name: str,
+    tool_description: str,
+) -> dict:
+    """Request one strict JSON object, falling back to a single tool call when required."""
+    try:
+        message = await _post_completion(client, {
+            "model": QWEN_MODEL,
+            "temperature": 0.1,
+            "messages": messages,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": schema_name, "strict": True, "schema": schema},
+            },
+        }, strategy="schema")
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise AppError(
+                "invalid_model_response",
+                "Qwen 未返回严格 JSON Schema 内容。",
+                502,
+                retry_strategy="tool",
+                field="content",
+            )
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise AppError(
+                "invalid_model_response",
+                "Qwen 返回的结构化内容不是有效 JSON。",
+                502,
+                retry_strategy="schema",
+            ) from exc
+        if not isinstance(payload, dict):
+            raise AppError("invalid_model_response", "Qwen 结构化结果必须是对象。", 502, retry_strategy="schema")
+        return payload
+    except AppError as error:
+        if error.retry_strategy != "tool":
+            raise
+
+    message = await _post_completion(client, {
+        "model": QWEN_MODEL,
+        "temperature": 0.1,
+        "messages": messages,
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": schema_name,
+                "description": tool_description,
+                "parameters": schema,
+                "strict": True,
+            },
+        }],
+        "tool_choice": {"type": "function", "function": {"name": schema_name}},
+    }, strategy="tool")
+    tool_calls = message.get("tool_calls")
+    function = tool_calls[0].get("function") if isinstance(tool_calls, list) and len(tool_calls) == 1 else None
+    if not isinstance(function, dict) or function.get("name") != schema_name:
+        raise AppError("invalid_model_response", "Qwen 未调用指定的结构化提取工具。", 502)
+    arguments = function.get("arguments")
+    if not isinstance(arguments, str):
+        raise AppError("invalid_model_response", "Qwen 返回了无效的结构化工具参数。", 502)
+    try:
+        payload = json.loads(arguments)
+    except json.JSONDecodeError as exc:
+        raise AppError("invalid_model_response", "Qwen 工具参数不是有效 JSON。", 502) from exc
+    if not isinstance(payload, dict):
+        raise AppError("invalid_model_response", "Qwen 结构化结果必须是对象。", 502)
+    return payload
+
+
 # ═══════════════════════════════════════════════════════════════
 # 两种审查调用策略
 # ═══════════════════════════════════════════════════════════════

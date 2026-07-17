@@ -31,6 +31,7 @@ from app.models import ManualStatus, ReviewMode, ReviewStatus, ReviewTask, RuleS
 from app.services.mock_review import build_mock_review
 from app.services.parser import parse_document
 from app.services.qwen import review_with_qwen
+from app.services.template_extraction import review_template_document
 from app.services.victim_profile import extract_victim_profile
 from app.store import get_task, list_tasks, save_task
 
@@ -53,8 +54,8 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
     执行步骤（严格顺序）：
     1. RECOGNIZING — 调用 parser 解析文档格式。
     2. CHECKING   — 调用 victim_profile 提取被害人信息。
-                   调用 qwen.review_with_qwen 执行规则审查。
-    3. VALIDATING — 校验证据一致性（由 qwen 内部完成）。
+                   按模板业务域调用 Qwen 提取带锚点事实。
+    3. VALIDATING — 使用版本化模板规则确定性校验事实与证据。
     4. COMPLETED  — 审查完成。
 
     任何步骤失败 → 状态置为 FAILED，记录错误码与信息。
@@ -87,7 +88,7 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         model_started = perf_counter()
         group_timings: dict[str, int] = {}
         try:
-            results = await review_with_qwen(task.document, group_timings=group_timings)
+            results = await review_template_document(task.document, group_timings=group_timings)
         finally:
             task.timings.modelReviewMs = round((perf_counter() - model_started) * 1000)
             task.timings.modelGroupsMs = group_timings

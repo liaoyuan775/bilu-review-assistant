@@ -19,6 +19,10 @@
 - Verified the supplied template reconstructs exactly 33 question/answer blocks and keeps basic-information guidance out of facts.
 - Added a versioned internal-template catalog with source SHA-256, 33 source-backed question rules, one structural rule, and all 15 review groups.
 - Added a network-free deterministic engine for applicability, required facts, repeated entities, amount relationships, and chronology.
+- Added seven strict Qwen fact-extraction domains using the configured model, stable anchors, schema/tool fallback, and one validation retry.
+- Excluded reconstructed template guidance from prompts and rejected missing, invalid, or guidance-only evidence anchors.
+- Routed uploads through template facts plus deterministic rules; retained the legacy demo adapter only as compatibility coverage.
+- Published the 34 internal-template rules through the health and rule APIs instead of seven three/four-flow rules.
 
 ## Verification Log
 
@@ -42,6 +46,10 @@
 | Task 4 full backend | `pytest -q tests` with actual template path | 71 passed |
 | Task 4 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 4 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 5 selected backend | `pytest -q test_template_extraction.py test_template_rule_engine.py test_api.py` | 44 passed |
+| Task 5 full backend | `pytest -q tests` with actual template path | 80 passed |
+| Task 5 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 5 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 
@@ -52,3 +60,4 @@
 | 2026-07-18 00:35 | Header/footer preservation made the actual-template aggregate block count 145 | 3 | Verified the source split is 144 native body blocks plus one footer and scoped the assertion accordingly |
 | 2026-07-18 00:35 | Scanned-PDF API test expected the old three-field paragraph schema | 4 | Updated the contract assertion to include stable ID, offsets, and nullable bbox |
 | 2026-07-18 00:52 | A fact with `clarity=unknown`, evidence, and no normalized value was classified as missing | 5 | Separated missing facts from present-but-unclear facts before checking normalized value |
+| 2026-07-18 01:10 | Seven legacy Qwen transport tests received the new domain schema through the demo route | 6 | Kept demo protocol tests on the legacy adapter and switched only the upload pipeline to template extraction |

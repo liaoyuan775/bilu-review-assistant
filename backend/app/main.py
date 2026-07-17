@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import FRONTEND_ORIGIN, MAX_FILE_SIZE, QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
-from app.data import RULES
+from app.data import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
 from app.demo_cases import DEMO_CASES, get_demo_case, load_demo_document
 from app.development_logging import configure_logging, log_event
 from app.errors import AppError
@@ -74,18 +74,22 @@ async def health():
     return {
         "ok": True,
         "qwen": {"configured": bool(QWEN_BASE_URL and QWEN_API_KEY and QWEN_MODEL), "reachable": reachable, "model": QWEN_MODEL or None},
-        "ruleCount": len(RULES),
+        "ruleCount": len(TEMPLATE_RULES),
     }
 
 
 @app.get("/api/v1/rules", response_model=RuleListResponse)
 async def list_rules():
-    """返回"三现四流"完整规则列表（供前端规则管理页使用）。"""
+    """返回内部询问笔录模板派生的版本化规则目录。"""
     return {"rules": [{
-        "id": rule["id"], "name": rule["name"], "category": rule["category"], "group": rule["group"],
-        "scope": rule["scope"], "requiredFacts": [fact["label"] for fact in rule["requiredFacts"]],
-        "source": rule["source"],
-    } for rule in RULES]}
+        "id": rule.ruleId,
+        "name": rule.name,
+        "category": rule.group,
+        "group": rule.group,
+        "scope": rule.scope,
+        "requiredFacts": rule.requiredFields,
+        "source": f"内部询问笔录模板 v{TEMPLATE_RULE_CATALOG.version}",
+    } for rule in TEMPLATE_RULES]}
 
 
 @app.get("/api/v1/demos", response_model=DemoListResponse)

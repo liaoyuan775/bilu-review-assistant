@@ -13,7 +13,7 @@ import pytest
 
 from app.errors import AppError
 from app.main import app
-from app.data import RULES
+from app.data import RULES, TEMPLATE_RULES
 from app.demo_cases import DEMO_CASES, load_demo_document
 from app.services import qwen
 from app.services.analyzer import analyze_document
@@ -123,7 +123,7 @@ def _upload(filename: str, content: bytes):
             group_timings.update({"三现": 12, "四流": 18})
         return analyze_document(document)
 
-    with patch("app.services.review.review_with_qwen", side_effect=fixture_review):
+    with patch("app.services.review.review_template_document", side_effect=fixture_review):
         created = client.post(
             "/api/v1/reviews",
             data={"mode": "local"},
@@ -147,13 +147,13 @@ def test_upload_records_stage_and_group_timings():
 def test_health_and_rules():
     health = client.get("/api/v1/health")
     assert health.status_code == 200
-    assert health.json()["ruleCount"] == 7
+    assert health.json()["ruleCount"] == len(TEMPLATE_RULES)
     rules = client.get("/api/v1/rules")
     assert rules.status_code == 200
     payload = rules.json()["rules"]
-    assert len(payload) == 7
-    assert {rule["group"] for rule in payload} == {"三现", "四流"}
-    assert all(rule["source"] == "working_rule" for rule in payload)
+    assert len(payload) == len(TEMPLATE_RULES)
+    assert {rule["group"] for rule in payload} == {rule.group for rule in TEMPLATE_RULES}
+    assert all(rule["source"].startswith("内部询问笔录模板 v") for rule in payload)
     assert all(rule["requiredFacts"] for rule in payload)
 
     schema = client.get("/api/openapi.json").json()

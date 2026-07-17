@@ -267,11 +267,13 @@ class ReviewResult(BaseModel):
     evidence: str                   # 证据原文（摘录自笔录）
     evidenceLocation: EvidenceLocation | None  # 兼容旧版单定位字段
     evidenceLocations: list[EvidenceLocation] = Field(default_factory=list)  # 新版多证据定位
+    evidenceAnchorIds: list[str] = Field(default_factory=list)
     reason: str                     # 模型判断理由
     suggestedQuestion: str          # 建议的补问内容
     advisories: list[str] = Field(default_factory=list)  # 非强制补充关注
     manualDecision: ManualDecision = Field(default_factory=ManualDecision)
     source: str                     # 结果来源说明（如模型名或规则版本）
+    severity: Literal["high", "medium", "low"] = "medium"
 
 
 class DecisionResponse(BaseModel):
