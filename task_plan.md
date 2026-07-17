@@ -6,11 +6,11 @@
 
 ## Current Phase
 
-Task 1 - 隔离基线与模板回归测试
+Task 2 - 容错 DOCX/PDF 解析和精确锚点
 
 ## Execution Plan
 
-- [ ] Task 1: 隔离基线与损坏媒体模板回归
+- [x] Task 1: 隔离基线与损坏媒体模板回归
 - [ ] Task 2: 容错 DOCX/PDF 解析和精确锚点
 - [ ] Task 3: 问答重建与模板说明隔离
 - [ ] Task 4: 版本化模板规则与确定性引擎
@@ -34,9 +34,10 @@ Task 1 - 隔离基线与模板回归测试
 
 | Error | Attempt | Resolution |
 |-------|---------|------------|
+| Actual-template regression used an arbitrary character threshold | 1 | Assert exact structural coverage and key content instead |
+| Question oracle omitted one same-paragraph question | 2 | Corrected structural count to 33 markers |
 
 ## References
 
 - `docs/superpowers/specs/2026-07-18-template-complete-review-design.md`
 - `docs/superpowers/plans/2026-07-18-template-complete-review.md`
-

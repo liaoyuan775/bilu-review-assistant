@@ -1,17 +1,13 @@
-from io import BytesIO
 import logging
 from pathlib import Path
 import re
 
 import fitz
-from docx import Document
-from docx.table import Table
-from docx.text.paragraph import Paragraph
-
 from app.config import MAX_FILE_SIZE
 from app.development_logging import log_event, log_payload
 from app.errors import AppError
 from app.models import DocumentPage, DocumentParagraph, ParsedDocument, SourceType
+from app.services.openxml import read_docx_parts
 from app.services.vision import transcribe_image
 
 
@@ -122,39 +118,19 @@ def _paginate(blocks: list[DocumentParagraph], target_chars: int = 1800) -> list
     return pages
 
 
-def _docx_text_and_tables(document: Document) -> list[DocumentParagraph]:
-    blocks: list[DocumentParagraph] = []
-    for child in document.element.body.iterchildren():
-        if child.tag.endswith("}p"):
-            text = _normalize(Paragraph(child, document).text)
-            if text:
-                blocks.append(DocumentParagraph(text=text, sourceType=SourceType.NATIVE_TEXT))
-        elif child.tag.endswith("}tbl"):
-            table = Table(child, document)
-            for row in table.rows:
-                cells = [_normalize(cell.text) for cell in row.cells]
-                text = " | ".join(cell for cell in cells if cell)
-                if text:
-                    blocks.append(DocumentParagraph(text=text, sourceType=SourceType.TABLE))
-    return blocks
-
-
 async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
     try:
-        document = Document(BytesIO(content))
-        blocks = _docx_text_and_tables(document)
-        image_parts: list[tuple[bytes, str]] = []
-        seen_parts: set[str] = set()
-        for relation in document.part.rels.values():
-            target = relation.target_part
-            content_type = getattr(target, "content_type", "")
-            partname = str(getattr(target, "partname", ""))
-            if content_type.startswith("image/") and partname not in seen_parts:
-                seen_parts.add(partname)
-                image_parts.append((target.blob, content_type))
+        package = read_docx_parts(content)
+        blocks = [
+            DocumentParagraph(text=_normalize(block.text), sourceType=block.source_type)
+            for block in package.blocks
+            if _normalize(block.text)
+        ]
     except Exception as exc:
         raise AppError("parse_failed", "DOCX 文件无法解析，请确认文件未损坏。", 422) from exc
-    for image, media_type in image_parts:
+    for image_part in package.images:
+        image = image_part.content
+        media_type = image_part.media_type
         log_event(logging.DEBUG, "parser.docx_image", filename=filename, media_type=media_type, bytes=len(image))
         blocks.extend(_vision_blocks(await transcribe_image(image, media_type)))
     if not blocks:
@@ -167,8 +143,9 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
         pages=pages,
         text="\n".join(block.text for block in blocks),
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
+        warnings=package.warnings,
     )
-    log_event(logging.INFO, "parser.docx_complete", filename=filename, pages=parsed.pageCount, paragraphs=len(blocks), images=len(image_parts), chars=len(parsed.text))
+    log_event(logging.INFO, "parser.docx_complete", filename=filename, pages=parsed.pageCount, paragraphs=len(blocks), images=len(package.images), warnings=len(package.warnings), chars=len(parsed.text))
     log_payload("document.parsed_text", parsed.text, filename=filename, format=parsed.format)
     return parsed
 

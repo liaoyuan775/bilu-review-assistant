@@ -146,6 +146,13 @@ class DocumentPage(BaseModel):
     paragraphs: list[DocumentParagraph]
 
 
+class DocumentWarning(BaseModel):
+    """Recoverable document issue that must remain visible to reviewers."""
+    code: str
+    message: str
+    partName: str | None = None
+
+
 class ParsedDocument(BaseModel):
     """标准化后的文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。"""
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -155,6 +162,7 @@ class ParsedDocument(BaseModel):
     pages: list[DocumentPage]
     text: str         # 全文拼接文本，用于关键词搜索
     sizeLabel: str    # 用户可读的大小标签（如"脱敏样例"）
+    warnings: list[DocumentWarning] = Field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════
