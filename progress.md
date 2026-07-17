@@ -28,6 +28,18 @@
 - Connected uploads to original/version/run/fact/issue/artifact audit records and exposed version, action, follow-up, retry, warning, download, and archive endpoints.
 - Added affected-domain follow-up re-review, append-only operator events, archived read-only enforcement, and explicit archive gates.
 - Removed the configured Qwen provider's unsupported `uniqueItems` schema keyword; a synthetic strict-schema request then returned HTTP 200.
+- Resumed Task 8 in the existing linked worktree and confirmed the pushed baseline, intended uncommitted frontend scope, running frontend, and backend route map before browser QA.
+- Started Task 8 browser QA in installed Microsoft Edge at 1440x900; initial screen and all sanitized demo rows render correctly with zero console errors or warnings.
+- Task 8 browser QA failed the rule-contract check after demo 01: the workspace rendered a legacy `三现` group from the seven-result mock adapter. Root-cause tracing and a regression test are required before visual sign-off.
+- Template demo RED/GREEN completed: `backend/tests/test_demo_cases.py` now passes 5/5, proving mock mode returns the 34-rule catalog and Qwen mode calls the template pipeline. Restarted production preview/backend on ports 4173/8787 for fresh browser QA.
+- Extended the same demo contract test to cover original/version persistence and mock follow-up re-review; 5/5 still pass. Restarted the non-reloading preview backend and returned the browser to a fresh demo selection.
+- Completed the real browser follow-up workflow at 1440x900: selected RISK-001, recorded the actual answer, observed a new document version and appended exact anchors, and cleared the high-risk archive blocker.
+- Task 8 mobile QA at 390x844 reports document/body scroll width 375px with no horizontal overflow; console remains at zero errors/warnings.
+- Applied the mobile grid and long-token wrapping fix; frontend regression is 11 files / 41 tests passed and the production build completed with 1754 modules. Browser re-verification continues on a fresh demo because reload resets in-memory navigation state.
+- Mobile visual re-check passed after the fix: all measured nested containers fit exactly, five status cells and two archive gates remain readable, and the document/problem panes no longer expose horizontal scrollbars.
+- Restored the browser to 1440x900 at the page top and captured the final desktop regression screenshot for visual inspection.
+- Updated stale legacy transport tests to call the compatibility adapter directly while product demos remain on the 34-rule template pipeline.
+- Task 8 complete: desktop/mobile browser QA passed, mock follow-up lifecycle passed, console remained clean, and full backend regression returned 99 passed / 1 optional actual-template skip after the temporary WeChat source disappeared.
 
 ## Verification Log
 
@@ -65,6 +77,12 @@
 | Task 7 OpenAPI export | `python scripts/export_openapi.py` | `docs/openapi.json` updated |
 | Task 7 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 7 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 8 template demo contract | `pytest -q backend/tests/test_demo_cases.py` | 5 passed |
+| Task 8 frontend regression | `npm --prefix frontend run test` | 11 files / 41 tests passed |
+| Task 8 frontend production build | `npm --prefix frontend run build` | 1754 modules transformed, exit 0 |
+| Task 8 browser QA | Playwright CLI, Edge, 1440x900 and 390x844 | Dynamic template groups, exact anchors, follow-up re-review, zero console errors, no nested horizontal overflow |
+| Task 8 selected backend | `pytest -q test_api.py test_demo_cases.py` | 33 passed |
+| Task 8 full backend | `pytest -q backend/tests` | 99 passed, 1 optional actual-template test skipped |
 
 ## Error Log
 
@@ -77,3 +95,7 @@
 | 2026-07-18 00:52 | A fact with `clarity=unknown`, evidence, and no normalized value was classified as missing | 5 | Separated missing facts from present-but-unclear facts before checking normalized value |
 | 2026-07-18 01:10 | Seven legacy Qwen transport tests received the new domain schema through the demo route | 6 | Kept demo protocol tests on the legacy adapter and switched only the upload pipeline to template extraction |
 | 2026-07-18 01:40 | Configured Qwen returned HTTP 400 with `Grammar error: Unimplemented keys: ["uniqueItems"]` | 7 | Added a provider-compatibility regression, removed `uniqueItems`, and verified the same strict schema returns HTTP 200 |
+| 2026-07-18 03:11 | Playwright CLI could not start because Chrome was absent at its default Windows path | 8 | Confirmed the CLI supports `--browser msedge` and Edge exists under Program Files; browser QA will use that installed channel |
+| 2026-07-18 03:25 | Task 8 demo contract tests returned seven legacy rules; the Qwen demo test also reached the legacy live endpoint | 9 | RED confirmed the orchestration defect; tests now forbid the legacy entry point and production demos use the template paths |
+| 2026-07-18 03:45 | Playwright CLI `run-code` rejected a raw `await page.screenshot(...)` expression | 10 | Use the documented screenshot command/options instead; application state was unaffected |
+| 2026-07-18 03:57 | Full backend regression: 11 failed / 89 passed | 11 | Ten failures are stale tests coupling legacy Qwen transport to the now-template demo API; one is the expired WeChat temporary template path. Update test boundaries and locate a current source copy, without restoring legacy product behavior |

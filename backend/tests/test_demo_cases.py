@@ -4,10 +4,15 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app import store
+from app.data import TEMPLATE_RULE_CATALOG
 from app.demo_cases import DEMO_CASES, get_demo_case, load_demo_document
 from app.main import app
 from app.models import ManualDecision, ReviewResult, RuleStatus
+from app.services import artifacts
+from app.services.artifacts import ArtifactStorage
+from app.services.template_extraction import TemplateReviewOutcome
 from app.store import SqliteTaskStore
+from app.template_models import CaseExtraction
 
 
 client = TestClient(app)
@@ -54,31 +59,64 @@ def test_demo_api_lists_seven_cases_and_rejects_old_ids(tmp_path, monkeypatch):
 
 def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
 
-    with patch("app.services.review.review_with_qwen", new=AsyncMock(side_effect=AssertionError("Qwen must not be called"))):
+    with patch("app.services.review.run_template_review", new=AsyncMock(side_effect=AssertionError("Qwen must not be called"))):
         created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
 
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
     assert task["mode"] == "mock"
     assert task["status"] == "completed"
-    assert len(task["results"]) == 7
-    assert all("模拟结果" in result["source"] for result in task["results"])
-    incomplete = [result for result in task["results"] if result["status"] == "incomplete"]
-    assert [(result["ruleId"], result["missingFacts"]) for result in incomplete] == [
-        ("PRESENT-002", ["提取或查验情况"]),
+    assert task["documentId"]
+    assert task["documentVersionId"]
+    assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json"]
+    assert [result["ruleId"] for result in task["results"]] == [
+        rule.ruleId for rule in TEMPLATE_RULE_CATALOG.rules
     ]
+    assert {result["group"] for result in task["results"]}.issubset({
+        "META", "PROC", "CASE", "PREV", "RISK", "CASH", "TIME", "PRIV",
+        "LEAD", "MOTIVE", "CONTACT", "MONEY", "OFFLINE", "EXTRA", "EVID",
+    })
+    assert all("内部询问笔录模板" in result["source"] and "模拟结果" in result["source"] for result in task["results"])
+    incomplete = [result for result in task["results"] if result["status"] == "incomplete"]
+    assert len(incomplete) == 1
+    assert incomplete[0]["severity"] == "high"
+    assert incomplete[0]["evidenceAnchorIds"]
+
+    action = client.post(
+        f"/api/v1/reviews/{task['id']}/issues/RISK-001/actions",
+        json={"status": "supplemented", "reason": incomplete[0]["suggestedQuestion"], "actorId": "test-operator"},
+    )
+    assert action.status_code == 200
+    with patch("app.services.review.run_template_review", new=AsyncMock(side_effect=AssertionError("mock follow-up must not call Qwen"))):
+        follow_up = client.post(
+            f"/api/v1/reviews/{task['id']}/issues/RISK-001/follow-up-answer",
+            json={
+                "question": incomplete[0]["suggestedQuestion"],
+                "answer": "转账前未收到银行或支付机构的风险提示。",
+                "actorId": "test-operator",
+            },
+        )
+    assert follow_up.status_code == 200
+    updated = follow_up.json()
+    assert updated["documentVersionId"] != task["documentVersionId"]
+    refreshed = next(result for result in updated["results"] if result["ruleId"] == "RISK-001")
+    assert refreshed["status"] == "covered"
+    assert refreshed["manualDecision"]["status"] == "resolved"
 
 
 def test_case_02_uses_qwen_review(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
     document = asyncio.run(load_demo_document(DEMO_CASES[1]))
     fixture_results = [
         ReviewResult(
-            ruleId="PRESENT-001",
-            ruleName="案发现场",
-            category="三现",
-            group="三现",
+            ruleId="CASE-001",
+            ruleName="报案原因与案件概述",
+            category="CASE",
+            group="CASE",
             status=RuleStatus.COVERED,
             missingFacts=[],
             evidence=document.pages[0].paragraphs[0].text,
@@ -88,11 +126,17 @@ def test_case_02_uses_qwen_review(tmp_path, monkeypatch):
             suggestedQuestion="",
             advisories=[],
             manualDecision=ManualDecision(),
-            source="三现四流工作规则（Qwen 辅助判断，结果需人工复核）",
+            source="内部询问笔录模板 v1（Qwen 事实抽取，确定性规则校验）",
+            severity="high",
         )
     ]
+    outcome = TemplateReviewOutcome(
+        extraction=CaseExtraction(),
+        issues=[],
+        results=fixture_results,
+    )
 
-    with patch("app.services.review.review_with_qwen", new=AsyncMock(return_value=fixture_results)) as review:
+    with patch("app.services.review.run_template_review", new=AsyncMock(return_value=outcome)) as review:
         created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={"mode": "local"})
 
     assert created.status_code == 202

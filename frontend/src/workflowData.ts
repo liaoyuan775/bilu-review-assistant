@@ -8,7 +8,7 @@
  *
  * 布局说明：
  * - 三列布局：左侧（validate, manual-action）、中间（normalize, evidence-validation）、
- *   右侧（recognize, three-four-review）。
+ *   右侧（recognize, template-review）。
  * - 异常节点（failed）位于左下角，与所有容错阶段以虚线相连。
  */
 
@@ -34,7 +34,7 @@ export const workflowStages: readonly string[] = [
   "validate",              // 01 - 文件校验
   "normalize",             // 02 - 内容标准化
   "recognize",             // 03 - 图像文字识别
-  "three-four-review",     // 04 - 三现四流审查
+  "template-review",       // 04 - 模板事实与规则审查
   "evidence-validation",   // 05 - 证据与结果校验
   "manual-action",         // 06 - 人工复核
 ] as const;
@@ -75,13 +75,13 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "three-four-review", type: "workflow", position: { x: 600, y: 255 },
+    id: "template-review", type: "workflow", position: { x: 600, y: 255 },
     data: {
-      step: "04", title: "三现四流审查", summary: "依据七条固定工作规则检查笔录。",
-      input: "标准笔录、requiredFacts 与非强制 referenceHints。",
-      process: "模型逐条判断案发现场、涉案现物、电子现痕及人员、信息、资金、行为四流。",
-      output: "七条候选状态、硬缺失字段、证据和建议补问。",
-      exception: "不得新增规则；补充资料不得改变硬性状态。",
+      step: "04", title: "模板事实审查", summary: "依据内部询问笔录模板检查完整性。",
+      input: "去除模板说明的问答块、稳定证据锚点和版本化模板规则。",
+      process: "Qwen 按业务域抽取有证据事实，程序确定性校验适用性、必填字段、重复明细和一致性。",
+      output: "模板问题状态、缺失或矛盾字段、精确证据和建议补问。",
+      exception: "任一抽取域失败或证据锚点无效时不得生成完整审查。",
       phase: "rules", status: "required",
     },
   },
@@ -89,9 +89,9 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     id: "evidence-validation", type: "workflow", position: { x: 310, y: 255 },
     data: {
       step: "05", title: "证据与结果校验", summary: "确保每项判断都能回到规则和原文。",
-      input: "七条模型结果、标准文档位置索引和规则白名单。",
-      process: "校验编号、状态、硬缺失字段、证据位置，并将补充关注与遗漏统计分离。",
-      output: "七条可追溯且结构稳定的审查结果。",
+      input: "模板规则结果、标准文档锚点和人工处理状态。",
+      process: "校验规则版本、事实状态、重复实体、证据范围和归档门槛。",
+      output: "可追溯且结构稳定的模板审查问题列表。",
       exception: "规则缺失、字段越界或证据冲突时不返回部分结果。",
       phase: "review", status: "required",
     },
@@ -138,8 +138,8 @@ const failureEdge = (source: string): Edge => ({
 export const workflowEdges: Edge[] = [
   mainEdge("validate", "normalize", "source-right", "target-left"),
   mainEdge("normalize", "recognize", "source-right", "target-left"),
-  mainEdge("recognize", "three-four-review", "source-bottom", "target-top"),
-  mainEdge("three-four-review", "evidence-validation", "source-left", "target-right"),
+  mainEdge("recognize", "template-review", "source-bottom", "target-top"),
+  mainEdge("template-review", "evidence-validation", "source-left", "target-right"),
   mainEdge("evidence-validation", "manual-action", "source-left", "target-right"),
   failureEdge("validate"),
   failureEdge("normalize"),

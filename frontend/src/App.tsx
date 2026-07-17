@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   Archive,
   ArrowLeft,
   Check,
@@ -52,7 +53,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { ApiError, archiveReview, createDemoTask, createUploadTask, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, submitDecision } from "./api";
+import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
 import { evidenceLocationsFor, isEvidencePage, isEvidenceParagraph } from "./evidenceSelection";
 import { getReviewErrorTitle } from "./errorPresentation";
 import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
@@ -63,6 +64,8 @@ import { toggleSelectedRuleId } from "./resultSelection";
 import type { DemoSummary, ManualStatus, ReportData, ReviewResult, ReviewSummary, ReviewTask, RuleStatus, RuleSummary, TaskStatus, VictimProfile } from "./types";
 import { getVictimAvatarVariant, getVictimInitial } from "./victimProfile";
 import { WorkflowView } from "./WorkflowView";
+import { TemplateReviewView } from "./TemplateReviewView";
+import { actionableStatuses, countTemplateStatuses } from "./templateReviewState";
 
 // ── 常量映射表 ──────────────────────────────────────────────────
 
@@ -71,7 +74,9 @@ const statusMeta: Record<RuleStatus, { label: string; className: string; icon: t
   covered: { label: "验证通过", className: "covered", icon: CheckCircle2 },
   missing: { label: "提问遗漏", className: "missing", icon: AlertCircle },
   incomplete: { label: "回答不完整", className: "incomplete", icon: Clock3 },
+  inconsistent: { label: "事实矛盾", className: "inconsistent", icon: AlertTriangle },
   not_applicable: { label: "不适用", className: "not-applicable", icon: CircleSlash2 },
+  needs_manual_review: { label: "待人工判断", className: "manual-review", icon: ShieldCheck },
 };
 
 /** 任务状态 → 中文标签。 */
@@ -80,7 +85,7 @@ const taskStatusLabel: Record<TaskStatus, string> = {
   uploading: "正在读取文件",
   parsing: "正在解析笔录",
   recognizing: "正在识别图像文字",
-  checking: "正在执行三现四流审查",
+  checking: "正在执行模板事实审查",
   validating: "正在校验证据与结果",
   completed: "审查完成",
   failed: "处理失败",
@@ -92,6 +97,8 @@ const manualLabel: Record<ManualStatus, string> = {
   confirmed: "已确认问题",
   supplemented: "已加入补问清单",
   ignored: "已忽略",
+  resolved: "已补问解决",
+  not_applicable: "人工确认不适用",
 };
 
 /** 创建初始（空）任务对象。 */
@@ -100,8 +107,16 @@ const createInitialTask = (): ReviewTask => ({
   mode: "qwen",
   status: "idle",
   document: null,
+  documentId: null,
+  documentVersionId: null,
+  reviewRunId: null,
+  extractionPayload: null,
   victimProfile: null,
   results: [],
+  failedDomains: [],
+  acknowledgedWarnings: [],
+  artifacts: [],
+  requiredArtifacts: [],
   timings: { parseMs: null, modelReviewMs: null, modelGroupsMs: {}, totalMs: null },
   reviewStatus: "in_review",
   archivedAt: null,
@@ -163,7 +178,7 @@ function App() {
       throw new ApiError(completed.errorCode ?? "review_service_failed", completed.errorMessage ?? "审查任务失败。");
     }
     // 自动定位到第一个问题项，如果没有问题则定位到第一条规则
-    const firstProblem = completed.results.find((result) => result.status === "missing" || result.status === "incomplete") ?? completed.results[0];
+    const firstProblem = completed.results.find((result) => actionableStatuses.has(result.status)) ?? completed.results[0];
     setTask(completed);
     setSelectedRuleId(firstProblem?.ruleId ?? null);
     setFilter("all");
@@ -227,16 +242,46 @@ function App() {
    */
   const updateManualDecision = async (ruleId: string, status: ManualStatus, reason = "") => {
     try {
-      const updated = await submitDecision(task.id, ruleId, status, reason);
+      const updated = await submitIssueAction(task.id, ruleId, status, reason);
       const updatedResults = task.results.map((result) => result.ruleId === ruleId ? updated : result);
       setTask((current) => ({ ...current, results: updatedResults }));
       const nextRuleId = nextPendingRuleId(updatedResults, ruleId);
       if (nextRuleId) setSelectedRuleId(nextRuleId);
-      showToast(status === "supplemented" ? "已加入补问清单" : status === "ignored" ? "已忽略该项" : "问题已确认");
+      showToast(status === "supplemented" ? "已加入补问" : status === "ignored" ? "已忽略该项" : status === "resolved" ? "问题已解决" : "处理已保存");
       return true;
     } catch (error) {
       showToast(error instanceof ApiError ? error.message : "人工处理保存失败");
       return false;
+    }
+  };
+
+  const saveFollowUpAnswer = async (ruleId: string, question: string, answer: string) => {
+    try {
+      const updated = await submitFollowUpAnswer(task.id, ruleId, question, answer);
+      setTask(updated);
+      setSelectedRuleId(updated.results.find((item) => actionableStatuses.has(item.status) && item.manualDecision.status === "pending")?.ruleId ?? ruleId);
+      showToast("补问答案已记录，受影响业务域已重审");
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "补问答案保存失败");
+      throw error;
+    }
+  };
+
+  const confirmWarnings = async (codes: string[]) => {
+    try {
+      setTask(await acknowledgeWarnings(task.id, codes));
+      showToast("解析告警已确认");
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "告警确认失败");
+    }
+  };
+
+  const retryDomain = async (domain: string) => {
+    try {
+      setTask(await retryReviewDomain(task.id, domain));
+      showToast(`${domain} 已重新审查`);
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "业务域重试失败");
     }
   };
 
@@ -275,7 +320,7 @@ function App() {
     try {
       const restored = await getReviewTask(taskId);
       setTask(restored);
-      setSelectedRuleId(restored.results.find((item) => item.status === "missing" || item.status === "incomplete")?.ruleId ?? restored.results[0]?.ruleId ?? null);
+      setSelectedRuleId(restored.results.find((item) => actionableStatuses.has(item.status))?.ruleId ?? restored.results[0]?.ruleId ?? null);
       setView("result");
     } catch (error) {
       showToast(error instanceof ApiError ? error.message : "审查记录加载失败");
@@ -311,9 +356,7 @@ function App() {
   const selectedResult = task.results.find((result) => result.ruleId === selectedRuleId) ?? null;
 
   const counts = useMemo(() => {
-    const base = { covered: 0, missing: 0, incomplete: 0, not_applicable: 0 };
-    task.results.forEach((result) => { base[result.status] += 1; });
-    return base;
+    return countTemplateStatuses(task.results);
   }, [task.results]);
 
   const visibleResults = useMemo(() => {
@@ -347,7 +390,7 @@ function App() {
             onClick={() => task.document && task.status === "completed" ? setView("result") : showToast("请先完成一份笔录审查")}
           >
             <ClipboardCheck size={18} /><span>审查结果</span>
-            {task.status === "completed" && <span className="nav-count">{counts.missing + counts.incomplete}</span>}
+            {task.status === "completed" && <span className="nav-count">{counts.missing + counts.incomplete + counts.inconsistent + counts.needs_manual_review}</span>}
           </button>
           <button className={view === "workflow" ? "nav-item active" : "nav-item"} onClick={() => setView("workflow")}>
             <Workflow size={18} /><span>执行流程</span>
@@ -373,7 +416,7 @@ function App() {
           <div className="topbar-context">
             <span className="eyebrow">公安智能辅助审查</span>
             <span className="topbar-separator" />
-            <span className="rule-version"><FileCheck2 size={15} />三现四流工作规则 · {ruleCount || 7} 条</span>
+            <span className="rule-version"><FileCheck2 size={15} />内部询问笔录模板 · {ruleCount || 34} 项</span>
           </div>
           <div className={`topbar-notice ${modelHealth}`}>
             <Radio size={15} />
@@ -404,23 +447,17 @@ function App() {
             notify={showToast}
           />
         ) : (
-          <ResultView
+          <TemplateReviewView
             task={task}
-            counts={counts}
-            filter={filter}
-            setFilter={setFilter}
-            search={search}
-            setSearch={setSearch}
-            visibleResults={visibleResults}
-            selectedResult={selectedResult}
-            toggleResult={toggleResult}
-            locateEvidence={locateEvidence}
+            selectedRuleId={selectedRuleId}
+            onSelectRule={setSelectedRuleId}
             onBack={() => setView("new")}
-            updateManualDecision={updateManualDecision}
-            onComplete={finishReview}
+            onAction={updateManualDecision}
+            onFollowUp={saveFollowUpAnswer}
+            onArchive={finishReview}
             onShowReport={openReport}
-            documentCollapsed={documentCollapsed}
-            setDocumentCollapsed={setDocumentCollapsed}
+            onAcknowledgeWarnings={confirmWarnings}
+            onRetryDomain={retryDomain}
             notify={showToast}
           />
         )}
@@ -536,7 +573,7 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
 
       <div className="boundary-strip entrance-3">
         <ShieldCheck size={18} />
-          <p><strong>使用边界</strong> 上传内容会发送到当前配置的多模态模型；仅可使用脱敏材料。结果依据三现四流工作口径生成，不替代执法判断、案件定性或证据效力判断。旧版 DOC 请先另存为 DOCX 或 PDF。</p>
+          <p><strong>使用边界</strong> 上传内容会发送到当前配置的多模态模型；仅可使用脱敏材料。结果依据内部询问笔录模板生成，不替代执法判断、案件定性或证据效力判断。旧版 DOC 请先另存为 DOCX 或 PDF。</p>
       </div>
     </section>
   );
@@ -971,7 +1008,7 @@ function RulesView({ rules }: { rules: RuleSummary[] }) {
 /** 审查报告页面 — 支持打印/另存为 PDF。 */
 function ReportView({ report, onBack }: { report: ReportData; onBack: () => void }) {
   const counts = report.results.reduce((total, item) => ({ ...total, [item.status]: total[item.status] + 1 }), {
-    covered: 0, missing: 0, incomplete: 0, not_applicable: 0,
+    covered: 0, missing: 0, incomplete: 0, inconsistent: 0, not_applicable: 0, needs_manual_review: 0,
   } as Record<RuleStatus, number>);
   return (
     <section className="report-page">

@@ -18,7 +18,7 @@ export type WorkflowStageId =
   | "validate"
   | "normalize"
   | "recognize"
-  | "three-four-review"
+  | "template-review"
   | "evidence-validation"
   | "manual-action"
   | "failed";
@@ -34,7 +34,7 @@ const mainStageIds: Exclude<WorkflowStageId, "failed">[] = [
   "validate",
   "normalize",
   "recognize",
-  "three-four-review",
+  "template-review",
   "evidence-validation",
   "manual-action",
 ];
@@ -45,7 +45,7 @@ const stageForTaskStatus: Record<TaskStatus, WorkflowStageId | null> = {
   uploading: "validate",
   parsing: "normalize",
   recognizing: "recognize",
-  checking: "three-four-review",
+  checking: "template-review",
   validating: "evidence-validation",
   completed: "manual-action",
   failed: "failed",
@@ -56,7 +56,7 @@ const initialStates = (): WorkflowProgress["states"] => ({
   validate: "pending",
   normalize: "pending",
   recognize: "pending",
-  "three-four-review": "pending",
+  "template-review": "pending",
   "evidence-validation": "pending",
   "manual-action": "pending",
   failed: "pending",

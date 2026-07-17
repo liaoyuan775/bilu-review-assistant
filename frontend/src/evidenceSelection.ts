@@ -7,7 +7,7 @@
  *
  * isEvidencePage / isEvidenceParagraph 用于在文档视图中高亮证据。
  */
-import type { EvidenceLocation, ReviewResult } from "./types";
+import type { EvidenceLocation, ParsedDocument, ReviewResult } from "./types";
 
 /**
  * 从审查结果中提取证据定位列表。
@@ -29,3 +29,21 @@ export const isEvidencePage = (locations: EvidenceLocation[], page: number) =>
 /** 判断某段是否包含证据（用于高亮证据段落背景）。 */
 export const isEvidenceParagraph = (locations: EvidenceLocation[], page: number, paragraph: number) =>
   locations.some((location) => location.page === page && location.paragraph === paragraph);
+
+export const evidenceAnchorRangesFor = (
+  result: Pick<ReviewResult, "evidenceAnchorIds" | "evidenceLocation" | "evidenceLocations"> | null,
+  document: ParsedDocument,
+) => {
+  if (!result) return [];
+  const selected = new Set(result.evidenceAnchorIds ?? []);
+  return document.pages.flatMap((page) => page.paragraphs.flatMap((paragraph, index) =>
+    selected.has(paragraph.id) ? [{
+      blockId: paragraph.id,
+      page: page.page,
+      paragraph: index + 1,
+      charStart: paragraph.charStart,
+      charEnd: paragraph.charEnd,
+      bbox: paragraph.bbox,
+    }] : [],
+  ));
+};

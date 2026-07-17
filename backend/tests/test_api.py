@@ -171,46 +171,46 @@ def test_health_and_rules():
     assert review_response["content"]["application/json"]["schema"]["$ref"].endswith("/ReviewTask")
 
 
-def test_demo_review_decisions_complete_and_report():
+def test_demo_review_decisions_block_archive_until_artifacts_exist():
     created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
     assert created.status_code == 202
     task_id = created.json()["taskId"]
     task = client.get(f"/api/v1/reviews/{task_id}").json()
     assert task["status"] == "completed"
-    assert len(task["results"]) == 7
+    assert len(task["results"]) == len(TEMPLATE_RULES)
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json"]
+    assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
     blocked = client.post(f"/api/v1/reviews/{task_id}/complete")
     assert blocked.status_code == 409
 
-    actionable = [item for item in task["results"] if item["status"] in {"missing", "incomplete"}]
-    for index, item in enumerate(actionable):
-        status = ["confirmed", "supplemented", "ignored"][index % 3]
-        saved = client.patch(
-            f"/api/v1/reviews/{task_id}/results/{item['ruleId']}/decision",
-            json={"status": status, "reason": ""},
+    actionable = [item for item in task["results"] if item["status"] in {"missing", "incomplete", "inconsistent", "needs_manual_review"}]
+    for item in actionable:
+        saved = client.post(
+            f"/api/v1/reviews/{task_id}/issues/{item['ruleId']}/actions",
+            json={"status": "resolved", "reason": "已通过脱敏测试补问核对。", "actorId": "test-operator"},
         )
         assert saved.status_code == 200
 
-    completed = client.post(f"/api/v1/reviews/{task_id}/complete")
-    assert completed.status_code == 200
-    assert completed.json()["reviewStatus"] == "archived"
-    assert completed.json()["archivedAt"]
+    still_blocked = client.post(f"/api/v1/reviews/{task_id}/complete")
+    assert still_blocked.status_code == 409
+    assert still_blocked.json()["error"]["code"] == "archive_missing_artifacts"
 
     follow_ups = client.get(f"/api/v1/reviews/{task_id}/follow-ups")
     assert follow_ups.status_code == 200
-    assert all(item["manualDecision"]["status"] == "supplemented" for item in follow_ups.json()["items"])
+    assert follow_ups.json()["items"] == []
 
     report = client.get(f"/api/v1/reviews/{task_id}/report-data")
     assert report.status_code == 200
-    assert report.json()["reviewStatus"] == "archived"
+    assert report.json()["reviewStatus"] == "in_review"
     assert report.json()["victimProfile"] == task["victimProfile"]
-    assert len(report.json()["results"]) == 7
+    assert len(report.json()["results"]) == len(TEMPLATE_RULES)
 
     history = client.get("/api/v1/reviews")
     assert history.status_code == 200
-    assert any(item["id"] == task_id and item["reviewStatus"] == "archived" for item in history.json()["reviews"])
+    assert any(item["id"] == task_id and item["reviewStatus"] == "in_review" for item in history.json()["reviews"])
 
 
-def test_three_present_four_flows_results_locate_source_paragraphs():
+def test_template_results_locate_source_paragraphs():
     created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
@@ -340,7 +340,7 @@ def test_empty_and_corrupt_files_fail_cleanly():
     ],
 )
 def test_qwen_failures_fail_the_whole_demo_task(monkeypatch, failure, expected_code):
-    monkeypatch.setattr("app.services.review.review_with_qwen", AsyncMock(side_effect=failure))
+    monkeypatch.setattr("app.services.review.run_template_review", AsyncMock(side_effect=failure))
     created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
@@ -561,15 +561,13 @@ def test_qwen_openai_compatible_success_path(monkeypatch):
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    assert created.status_code == 202
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
-    assert task["status"] == "completed"
-    assert len(task["results"]) == len(RULES)
+    group_timings: dict[str, int] = {}
+    results = asyncio.run(qwen.review_with_qwen(demo, group_timings=group_timings))
+    assert len(results) == len(RULES)
     assert len(requested_groups) == 2
-    assert set(task["timings"]["modelGroupsMs"]) == {"三现", "四流"}
-    assert all("Qwen 辅助判断" in item["source"] for item in task["results"])
-    assert all(item["evidence"] == demo.pages[0].paragraphs[0].text for item in task["results"])
+    assert set(group_timings) == {"三现", "四流"}
+    assert all("Qwen 辅助判断" in item.source for item in results)
+    assert all(item.evidence == demo.pages[0].paragraphs[0].text for item in results)
 
 
 def test_qwen_retries_once_with_validation_feedback(monkeypatch):
@@ -599,9 +597,8 @@ def test_qwen_retries_once_with_validation_feedback(monkeypatch):
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
-    assert task["status"] == "completed"
+    results = asyncio.run(qwen.review_with_qwen(demo))
+    assert len(results) == len(RULES)
     assert len(requests) == 4
     correction_requests = [request for request in requests if len(request["messages"]) == 3]
     assert len(correction_requests) == 2
@@ -635,9 +632,8 @@ def test_qwen_correction_lists_allowed_fact_coverage_keys(monkeypatch):
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
-    assert task["status"] == "completed"
+    results = asyncio.run(qwen.review_with_qwen(demo))
+    assert len(results) == len(RULES)
     feedback = next(request["messages"][-1]["content"] for request in requests if len(request["messages"]) == 3)
     assert "factCoverage 只允许以下键" in feedback
     assert all(fact["label"] in feedback for fact in RULES[0]["requiredFacts"])
@@ -663,12 +659,10 @@ def test_qwen_fails_without_partial_results_after_two_invalid_responses(monkeypa
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
+    with pytest.raises(AppError) as error:
+        asyncio.run(qwen.review_with_qwen(demo))
     assert request_count == 4
-    assert task["status"] == "failed"
-    assert task["errorCode"] == "insufficient_evidence"
-    assert task["results"] == []
+    assert error.value.code == "insufficient_evidence"
 
 
 def test_qwen_falls_back_to_function_calling_when_json_schema_is_unsupported(monkeypatch):
@@ -702,9 +696,8 @@ def test_qwen_falls_back_to_function_calling_when_json_schema_is_unsupported(mon
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
-    assert task["status"] == "completed"
+    results = asyncio.run(qwen.review_with_qwen(demo))
+    assert len(results) == len(RULES)
     assert len(requests) == 4
 
 
@@ -735,9 +728,8 @@ def test_qwen_retries_transient_http_failure_with_json_schema(monkeypatch):
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
     monkeypatch.setattr(qwen.asyncio, "sleep", AsyncMock())
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
-    assert task["status"] == "completed"
+    results = asyncio.run(qwen.review_with_qwen(demo))
+    assert len(results) == len(RULES)
     assert len(requests) == 4
 
 
@@ -758,9 +750,7 @@ def test_qwen_does_not_retry_authentication_failure(monkeypatch):
     monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
     monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
 
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
-    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
+    with pytest.raises(AppError) as error:
+        asyncio.run(qwen.review_with_qwen(_demo_document()))
     assert request_count == 2
-    assert task["status"] == "failed"
-    assert task["errorCode"] == "model_auth_failed"
-    assert task["results"] == []
+    assert error.value.code == "model_auth_failed"

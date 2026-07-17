@@ -89,9 +89,58 @@ export const submitDecision = async (taskId: string, ruleId: string, status: Man
   return payload.result;
 };
 
+export const submitIssueAction = async (
+  taskId: string,
+  ruleId: string,
+  status: ManualStatus,
+  reason: string,
+) => {
+  const payload = await parseResponse<{ result: ReviewResult }>(await fetch(`/api/v1/reviews/${taskId}/issues/${ruleId}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, reason, actorId: "local-operator" }),
+  }));
+  return payload.result;
+};
+
+export const submitFollowUpAnswer = async (
+  taskId: string,
+  ruleId: string,
+  question: string,
+  answer: string,
+) => parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${taskId}/issues/${ruleId}/follow-up-answer`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ question, answer, actorId: "local-operator" }),
+}));
+
+export const retryReviewDomain = async (taskId: string, domain: string) =>
+  parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${taskId}/domains/${encodeURIComponent(domain)}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actorId: "local-operator" }),
+  }));
+
+export const acknowledgeWarnings = async (taskId: string, codes: string[]) =>
+  parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${taskId}/warnings/acknowledge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes, actorId: "local-operator" }),
+  }));
+
+export const getReviewVersions = async (taskId: string) => {
+  const payload = await parseResponse<{ versions: Array<{ id: string; versionNumber: number; contentSha256: string; createdAt: string }> }>(
+    await fetch(`/api/v1/reviews/${taskId}/versions`),
+  );
+  return payload.versions;
+};
+
+export const artifactDownloadUrl = (taskId: string, artifactId: string) =>
+  `/api/v1/reviews/${encodeURIComponent(taskId)}/artifacts/${encodeURIComponent(artifactId)}`;
+
 /** 完成复核并归档。 */
 export const archiveReview = async (taskId: string) =>
-  parseResponse<{ reviewStatus: "archived"; archivedAt: string }>(await fetch(`/api/v1/reviews/${taskId}/complete`, { method: "POST" }));
+  parseResponse<{ reviewStatus: "archived"; archivedAt: string }>(await fetch(`/api/v1/reviews/${taskId}/archive`, { method: "POST" }));
 
 /** 获取审查历史列表。 */
 export const getReviewHistory = async () => {

@@ -15,10 +15,10 @@ export type ReviewMode = "qwen" | "mock" | "local";
 export type ReviewStatus = "in_review" | "archived";
 
 /** 单条规则的审查结论。 */
-export type RuleStatus = "covered" | "missing" | "incomplete" | "not_applicable";
+export type RuleStatus = "covered" | "missing" | "incomplete" | "inconsistent" | "not_applicable" | "needs_manual_review";
 
 /** 人工处置状态。 */
-export type ManualStatus = "pending" | "confirmed" | "supplemented" | "ignored";
+export type ManualStatus = "pending" | "confirmed" | "supplemented" | "ignored" | "resolved" | "not_applicable";
 
 /** 文档页面 — 包含段落列表。 */
 export interface DocumentPage {
@@ -28,9 +28,28 @@ export interface DocumentPage {
 
 /** 段落 — 包含文本、来源类型和 OCR 置信度。 */
 export interface DocumentParagraph {
+  id: string;
   text: string;
-  sourceType: "native_text" | "table" | "vision";
+  sourceType: "native_text" | "table" | "vision" | "header" | "footer";
   confidence: number | null;
+  charStart: number;
+  charEnd: number;
+  bbox: [number, number, number, number] | null;
+}
+
+export interface DocumentWarning {
+  code: string;
+  message: string;
+  partName: string | null;
+}
+
+export interface QuestionAnswerBlock {
+  id: string;
+  question: string;
+  answer: string;
+  guidance: string[];
+  anchorIds: string[];
+  answerClarity: "clear" | "blank" | "unclear";
 }
 
 /** 标准化文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。 */
@@ -42,6 +61,8 @@ export interface ParsedDocument {
   pages: DocumentPage[];
   text: string;
   sizeLabel: string;
+  warnings: DocumentWarning[];
+  questionAnswers: QuestionAnswerBlock[];
 }
 
 /** 被害人信息 — 全部字段可为空。 */
@@ -73,17 +94,27 @@ export interface ReviewResult {
   ruleId: string;
   ruleName: string;
   category: string;
-  group: "三现" | "四流";
+  group: string;
   status: RuleStatus;
   missingFacts: string[];
   evidence: string;
   evidenceLocation: EvidenceLocation | null;
   evidenceLocations?: EvidenceLocation[];
+  evidenceAnchorIds: string[];
   reason: string;
   suggestedQuestion: string;
   advisories: string[];
   manualDecision: ManualDecision;
   source: string;
+  severity: "high" | "medium" | "low";
+}
+
+export interface ArtifactSummary {
+  id: string;
+  type: string;
+  filename: string;
+  sha256: string;
+  sizeBytes: number;
 }
 
 /** 审查任务聚合根 — 包含一份笔录的全部审查状态。 */
@@ -92,8 +123,16 @@ export interface ReviewTask {
   mode: ReviewMode;
   status: TaskStatus;
   document: ParsedDocument | null;
+  documentId: string | null;
+  documentVersionId: string | null;
+  reviewRunId: string | null;
+  extractionPayload: Record<string, unknown> | null;
   victimProfile: VictimProfile | null;
   results: ReviewResult[];
+  failedDomains: string[];
+  acknowledgedWarnings: string[];
+  artifacts: ArtifactSummary[];
+  requiredArtifacts: string[];
   timings?: ReviewTimings;
   reviewStatus: ReviewStatus;
   archivedAt: string | null;
@@ -147,7 +186,7 @@ export interface RuleSummary {
   id: string;
   name: string;
   category: string;
-  group: "三现" | "四流";
+  group: string;
   scope: string;
   requiredFacts: string[];
   source: string;

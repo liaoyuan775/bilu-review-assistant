@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-Task 8 - 民警模板审查工作台
+Task 9 - PDF/DOCX/JSON 产出和归档清单
 
 ## Execution Plan
 
@@ -17,7 +17,7 @@ Task 8 - 民警模板审查工作台
 - [x] Task 5: Qwen 证据事实抽取与定向复核
 - [x] Task 6: 文档、运行、问题、事件和产物持久化
 - [x] Task 7: API 生命周期与归档门槛
-- [ ] Task 8: 民警模板审查工作台
+- [x] Task 8: 民警模板审查工作台
 - [ ] Task 9: PDF/DOCX/JSON 产出和归档清单
 - [ ] Task 10: 脱敏金标准与真实模型质量门槛
 - [ ] Task 11: 质量不下降的性能评测与优化
@@ -41,6 +41,8 @@ Task 8 - 民警模板审查工作台
 | Unknown fact with evidence was classified as fully missing | 5 | Evaluate clarity before an empty normalized value so unknown remains incomplete |
 | Legacy Qwen protocol tests were routed through the new domain extractor | 6 | Keep legacy demo protocol coverage isolated while uploads use the template adapter |
 | Configured Qwen rejected the extraction schema `uniqueItems` keyword | 7 | Removed the unsupported keyword and added grammar-error tool fallback detection |
+| Playwright CLI defaulted to a missing Chrome installation | 8 | Use the installed Microsoft Edge channel after confirming CLI browser support and the executable path |
+| Task 8 full backend run had ten stale legacy-demo assertions and one expired temporary template path | 9 | Move legacy Qwen transport coverage to its direct adapter boundary; locate a current copy of the supplied template before rerunning the optional integration test |
 
 ## References
 

@@ -26,7 +26,7 @@ from hashlib import sha256
 from time import perf_counter
 from uuid import uuid4
 
-from app.demo_cases import get_demo_case, load_demo_document
+from app.demo_cases import get_demo_case
 from app.config import QWEN_MODEL
 from app.data import TEMPLATE_RULE_CATALOG
 from app.development_logging import log_event, log_payload, reset_task_id, set_task_id
@@ -37,7 +37,6 @@ from app.services.artifacts import save_original
 from app.services.question_answer import reconstruct_question_answers
 from app.services.mock_review import build_mock_review
 from app.services.parser import parse_document
-from app.services.qwen import review_with_qwen
 from app.services.template_extraction import TemplateReviewOutcome, review_template_document, run_template_review
 from app.services.victim_profile import extract_victim_profile
 from app.template_models import CaseExtraction
@@ -236,7 +235,39 @@ async def process_demo(task_id: str, demo_id: str) -> None:
         task.status = TaskStatus.RECOGNIZING
         save_task(task)
         parse_started = perf_counter()
-        task.document = await load_demo_document(case)
+        content = case.path.read_bytes()
+        original = save_original(task.id, case.filename, content)
+        task.documentId = save_document(
+            task.id,
+            filename=original.filename,
+            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            sha256=original.sha256,
+            original_path=str(original.path),
+        )
+        original_record_id = save_artifact_record(
+            task.id,
+            None,
+            artifact_type="original",
+            filename=original.filename,
+            path=str(original.path),
+            sha256=original.sha256,
+            size_bytes=original.sizeBytes,
+            metadata={"source": "demo", "demoId": demo_id},
+        )
+        task.artifacts = [ArtifactSummary(
+            id=original_record_id,
+            type="original",
+            filename=original.filename,
+            sha256=original.sha256,
+            sizeBytes=original.sizeBytes,
+        )]
+        task.requiredArtifacts = list(_REQUIRED_ARTIFACTS)
+        task.document = await parse_document(case.filename, content)
+        task.documentVersionId = save_document_version(
+            task.documentId,
+            content_sha256=original.sha256,
+            parsed_payload=task.document.model_dump(mode="json"),
+        )
         task.timings.parseMs = round((perf_counter() - parse_started) * 1000)
         task.victimProfile = extract_victim_profile(task.document.text)
         task.status = TaskStatus.CHECKING
@@ -244,11 +275,12 @@ async def process_demo(task_id: str, demo_id: str) -> None:
         model_started = perf_counter()
         group_timings: dict[str, int] = {}
         try:
-            results = (
-                await review_with_qwen(task.document, group_timings=group_timings)
-                if task.mode == ReviewMode.QWEN
-                else build_mock_review(task.document)
-            )
+            if task.mode == ReviewMode.QWEN:
+                outcome = await run_template_review(task.document, group_timings=group_timings)
+                results = outcome.results
+                _persist_outcome(task, outcome)
+            else:
+                results = build_mock_review(task.document)
         finally:
             task.timings.modelReviewMs = round((perf_counter() - model_started) * 1000)
             task.timings.modelGroupsMs = group_timings
@@ -460,21 +492,30 @@ async def record_follow_up_answer(
     domain = _GROUP_DOMAINS.get(result.group)
     if domain is None:
         raise AppError("unknown_rule_domain", "无法确定该问题所属的复核业务域。", 500)
-    base = CaseExtraction.model_validate(task.extractionPayload or {})
-    outcome = await run_template_review(
-        updated_document,
-        group_timings=task.timings.modelGroupsMs,
-        domains=(domain,),
-        base_extraction=base,
-    )
-    task.results = outcome.results
+    if task.mode == ReviewMode.MOCK:
+        task.results = build_mock_review(updated_document)
+        refreshed = next((item for item in task.results if item.ruleId == rule_id), None)
+        if refreshed is not None:
+            refreshed.status = RuleStatus.COVERED
+            refreshed.missingFacts = []
+            refreshed.reason = "已记录实际补问和答案，快速演示复核已覆盖该模板要求。"
+            refreshed.suggestedQuestion = ""
+    else:
+        base = CaseExtraction.model_validate(task.extractionPayload or {})
+        outcome = await run_template_review(
+            updated_document,
+            group_timings=task.timings.modelGroupsMs,
+            domains=(domain,),
+            base_extraction=base,
+        )
+        task.results = outcome.results
+        _persist_outcome(task, outcome)
     refreshed = next((item for item in task.results if item.ruleId == rule_id), None)
     if refreshed is not None:
         refreshed.manualDecision = ManualDecision(
             status=ManualStatus.RESOLVED,
             reason="已记录实际补问和答案并完成受影响域复核。",
         )
-    _persist_outcome(task, outcome)
     append_manual_event(
         task.id,
         issue_id=_issue_id(task.id, rule_id),

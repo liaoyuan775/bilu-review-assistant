@@ -11,11 +11,13 @@ const result = (ruleId: string, ruleName: string, status: "supplemented" | "conf
   missingFacts: [],
   evidence: "",
   evidenceLocation: null,
+  evidenceAnchorIds: [],
   reason: "",
   suggestedQuestion: `${ruleName}的模型建议问法`,
   advisories: [],
   manualDecision: { status, reason: edited },
   source: "working_rule",
+  severity: "high",
 });
 
 describe("follow-up text", () => {

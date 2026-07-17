@@ -5,12 +5,12 @@ import { getWorkflowProgress } from "./workflowProgress";
 describe("workflow progress", () => {
   it("marks the current processing stage and every previous stage", () => {
     expect(getWorkflowProgress("checking", "in_review")).toEqual({
-      currentStageId: "three-four-review",
+      currentStageId: "template-review",
       states: {
         validate: "completed",
         normalize: "completed",
         recognize: "completed",
-        "three-four-review": "active",
+        "template-review": "active",
         "evidence-validation": "pending",
         "manual-action": "pending",
         failed: "pending",

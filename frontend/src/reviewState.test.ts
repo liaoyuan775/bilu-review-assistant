@@ -11,11 +11,13 @@ const result = (status: RuleStatus, manualStatus: ManualStatus): ReviewResult =>
   missingFacts: [],
   evidence: "",
   evidenceLocation: null,
+  evidenceAnchorIds: [],
   reason: "",
   suggestedQuestion: "建议补问",
   advisories: [],
   manualDecision: { status: manualStatus, reason: "" },
   source: "working_rule",
+  severity: "high",
 });
 
 describe("review completion", () => {
