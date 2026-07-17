@@ -1,29 +1,48 @@
-import type { Edge, Node } from "@xyflow/react";
+/**
+ * 工作流图表数据 — 定义审查流程的节点、边与阶段顺序。
+ *
+ * 节点类型：
+ * - required:    必经阶段（如文件校验、内容标准化）。
+ * - conditional: 条件阶段（如图像识别仅在包含扫描页时触发）。
+ * - terminal:    终态节点（人工复核、任务终止），无下游。
+ *
+ * 布局说明：
+ * - 三列布局：左侧（validate, manual-action）、中间（normalize, evidence-validation）、
+ *   右侧（recognize, three-four-review）。
+ * - 异常节点（failed）位于左下角，与所有容错阶段以虚线相连。
+ */
 
+import { MarkerType, type Edge, type Node } from "@xyflow/react";
+import type { WorkflowRuntimeState } from "./workflowProgress";
+
+/** 工作流节点的数据结构 — 包含阶段描述与运行时状态。 */
 export interface WorkflowNodeData extends Record<string, unknown> {
-  step: string;
-  title: string;
-  summary: string;
-  input: string;
-  process: string;
-  output: string;
-  exception: string;
+  step: string;          // 编号标识（如 "01", "02"）
+  title: string;         // 节点标题
+  summary: string;       // 一句话功能摘要
+  input: string;         // 输入描述
+  process: string;       // 处理逻辑描述
+  output: string;        // 输出描述
+  exception: string;     // 异常场景说明
   phase: "input" | "parse" | "rules" | "model" | "review" | "failure";
   status: "required" | "conditional" | "terminal";
+  runtimeState?: WorkflowRuntimeState;
 }
 
-export const workflowStages = [
-  "validate",
-  "normalize",
-  "recognize",
-  "three-four-review",
-  "evidence-validation",
-  "manual-action",
-];
+/** 工作流阶段的执行顺序标识。 */
+export const workflowStages: readonly string[] = [
+  "validate",              // 01 - 文件校验
+  "normalize",             // 02 - 内容标准化
+  "recognize",             // 03 - 图像文字识别
+  "three-four-review",     // 04 - 三现四流审查
+  "evidence-validation",   // 05 - 证据与结果校验
+  "manual-action",         // 06 - 人工复核
+] as const;
 
+/** 完整的工作流节点定义（含异常节点）。 */
 export const workflowNodes: Node<WorkflowNodeData>[] = [
   {
-    id: "validate", type: "workflow", position: { x: 10, y: 20 },
+    id: "validate", type: "workflow", position: { x: 20, y: 35 },
     data: {
       step: "01", title: "文件校验", summary: "确认脱敏材料可进入审查链路。",
       input: "单份 PDF 或 DOCX，文件大小不超过 20 MB。",
@@ -34,7 +53,7 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "normalize", type: "workflow", position: { x: 280, y: 20 },
+    id: "normalize", type: "workflow", position: { x: 310, y: 35 },
     data: {
       step: "02", title: "内容标准化", summary: "统一组织正文、表格、页面和图片。",
       input: "通过校验的 PDF 或 DOCX 二进制内容。",
@@ -45,7 +64,7 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "recognize", type: "workflow", position: { x: 550, y: 20 },
+    id: "recognize", type: "workflow", position: { x: 600, y: 35 },
     data: {
       step: "03", title: "图像文字识别", summary: "为扫描页和内嵌图片补充可核验文本。",
       input: "扫描 PDF 页面、混合页面图片和 DOCX 内嵌图片。",
@@ -56,7 +75,7 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "three-four-review", type: "workflow", position: { x: 820, y: 20 },
+    id: "three-four-review", type: "workflow", position: { x: 600, y: 255 },
     data: {
       step: "04", title: "三现四流审查", summary: "依据七条固定工作规则检查笔录。",
       input: "标准笔录、requiredFacts 与非强制 referenceHints。",
@@ -67,7 +86,7 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "evidence-validation", type: "workflow", position: { x: 550, y: 245 },
+    id: "evidence-validation", type: "workflow", position: { x: 310, y: 255 },
     data: {
       step: "05", title: "证据与结果校验", summary: "确保每项判断都能回到规则和原文。",
       input: "七条模型结果、标准文档位置索引和规则白名单。",
@@ -78,11 +97,11 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     },
   },
   {
-    id: "manual-action", type: "workflow", position: { x: 280, y: 245 },
+    id: "manual-action", type: "workflow", position: { x: 20, y: 255 },
     data: {
       step: "06", title: "人工复核", summary: "由办案人员确认模型结果并处置。",
       input: "规则状态、原文证据、建议补问和补充关注。",
-      process: "定位原文，执行确认问题、已补问或填写原因后忽略。",
+      process: "定位原文，执行确认问题、加入补问清单或忽略。",
       output: "带人工处理状态的当前任务结果。",
       exception: "系统不替代执法判断、案件定性或证据效力判断。",
       phase: "review", status: "terminal",
@@ -101,25 +120,34 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
   },
 ];
 
-const mainEdge = (source: string, target: string): Edge => ({
-  id: `${source}-${target}`, source, target, type: "smoothstep", animated: true,
+/** 创建一条主流程边（蓝色实线箭头）。 */
+const mainEdge = (source: string, target: string, sourceHandle: string, targetHandle: string): Edge => ({
+  id: `${source}-${target}`, source, target, sourceHandle, targetHandle, type: "smoothstep", animated: true,
   data: { kind: "main" }, style: { stroke: "#1677ff", strokeWidth: 2 },
+  markerEnd: { type: MarkerType.ArrowClosed, color: "#1677ff", width: 18, height: 18 },
 });
 
+/** 创建一条失败边（红色虚线，指向 failed 节点）。 */
 const failureEdge = (source: string): Edge => ({
   id: `${source}-failed`, source, target: "failed", type: "smoothstep", data: { kind: "failure" },
   label: "失败", style: { stroke: "#d92d20", strokeWidth: 1.5, strokeDasharray: "5 4" },
   labelStyle: { fill: "#b42318", fontSize: 10, fontWeight: 700 },
 });
 
+/** 完整边列表（包含主流程与失败路径）。 */
 export const workflowEdges: Edge[] = [
-  mainEdge("validate", "normalize"),
-  mainEdge("normalize", "recognize"),
-  mainEdge("recognize", "three-four-review"),
-  mainEdge("three-four-review", "evidence-validation"),
-  mainEdge("evidence-validation", "manual-action"),
+  mainEdge("validate", "normalize", "source-right", "target-left"),
+  mainEdge("normalize", "recognize", "source-right", "target-left"),
+  mainEdge("recognize", "three-four-review", "source-bottom", "target-top"),
+  mainEdge("three-four-review", "evidence-validation", "source-left", "target-right"),
+  mainEdge("evidence-validation", "manual-action", "source-left", "target-right"),
   failureEdge("validate"),
   failureEdge("normalize"),
   failureEdge("recognize"),
   failureEdge("evidence-validation"),
 ];
+
+/** 用于 UI 展示的节点（过滤掉异常节点）。 */
+export const displayWorkflowNodes = workflowNodes.filter((node) => workflowStages.includes(node.id));
+/** 用于 UI 展示的边（仅主流程，不含失败路径）。 */
+export const displayWorkflowEdges = workflowEdges.filter((edge) => edge.data?.kind === "main");

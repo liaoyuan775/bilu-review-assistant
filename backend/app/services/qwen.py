@@ -1,31 +1,69 @@
+"""
+Qwen 多模态模型集成 — LLM 调用、结构化输出解析与确定性校验。
+
+核心流程：
+1. 构建 Prompt：将笔录原文与规则定义拼接为系统提示。
+2. 模型调用：优先使用 JSON Schema 模式（response_format），
+   降级使用 Tool Calling 模式（tools + tool_choice）。
+3. 结构化解析：将模型原始输出解析为 ModelRuleResult 字典。
+4. 确定性校验（_validate）：检查规则完整性、状态一致性、
+   证据可追溯性、字段合规性等 20+ 项业务规则。
+
+重试策略：
+- 首次失败且错误可恢复 → 带 correction_hint 重试一次。
+- Schema 模式失败且服务端不支持 → 自动降级到 Tool 模式。
+- 鉴权/配置错误 → 直接终止，不重试。
+
+安全约束：
+- 模型不得编造证据（evidence 必须来自定位段落的原文）。
+- 模型不得输出规则 ID 之外的字段（extra="forbid"）。
+- 基础规则（scope="base"）不能标记为 NOT_APPLICABLE。
+"""
+
 import asyncio
 import json
+import logging
+from time import perf_counter
 
 import httpx
 from pydantic import ValidationError
 
 from app.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
 from app.data import RULES
+from app.development_logging import log_event, log_payload
 from app.errors import AppError
-from app.models import EvidenceLocation, ManualDecision, ModelReviewOutput, ParsedDocument, ReviewResult, RuleStatus
+from app.models import EvidenceLocation, ManualDecision, ModelRuleResult, ParsedDocument, ReviewResult, RuleStatus
 
-
+# ── 常量 ────────────────────────────────────────────────────────
 TOOL_NAME = "submit_three_present_four_flows_review"
 TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
+# ═══════════════════════════════════════════════════════════════
+# 模型连通性检查
+# ═══════════════════════════════════════════════════════════════
+
 async def check_qwen() -> bool:
+    """检查 Qwen 模型服务是否可达（超时 3 秒）。"""
     if not all([QWEN_BASE_URL, QWEN_API_KEY, QWEN_MODEL]):
+        log_event(logging.DEBUG, "qwen.health_skipped", configured=False)
         return False
     try:
         async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
             response = await client.get(f"{QWEN_BASE_URL}/models", headers={"Authorization": f"Bearer {QWEN_API_KEY}"})
+            log_event(logging.DEBUG, "qwen.health_response", status_code=response.status_code, reachable=response.is_success, model=QWEN_MODEL)
             return response.is_success
-    except httpx.HTTPError:
+    except httpx.HTTPError as error:
+        log_event(logging.WARNING, "qwen.health_failed", error_type=type(error).__name__)
         return False
 
 
+# ═══════════════════════════════════════════════════════════════
+# JSON Schema 构建
+# ═══════════════════════════════════════════════════════════════
+
 def _location_schema() -> dict:
+    """生成单条证据定位的 JSON Schema（页号、段号从 1 开始）。"""
     return {
         "type": "object",
         "properties": {
@@ -38,6 +76,12 @@ def _location_schema() -> dict:
 
 
 def _rule_result_schema(rule: dict) -> dict:
+    """根据规则定义生成单条规则结果的 JSON Schema。
+
+    关键设计：
+    - factCoverage 的键直接从 rule["requiredFacts"] 提取，确保键名一致。
+    - evidenceLocations 最多 3 个，超过会导致 Schema 校验失败。
+    """
     allowed_facts = [fact["label"] for fact in rule["requiredFacts"]]
     properties = {
         "factCoverage": {
@@ -49,7 +93,11 @@ def _rule_result_schema(rule: dict) -> dict:
             "required": allowed_facts,
             "additionalProperties": False,
         },
-        "evidenceLocation": {"anyOf": [_location_schema(), {"type": "null"}]},
+        "evidenceLocations": {
+            "type": "array",
+            "items": _location_schema(),
+            "maxItems": 3,
+        },
         "reason": {"type": "string", "minLength": 1},
         "suggestedQuestion": {"type": "string"},
         "advisories": {"type": "array", "items": {"type": "string"}},
@@ -57,26 +105,44 @@ def _rule_result_schema(rule: dict) -> dict:
     return {
         "type": "object",
         "properties": properties,
-        "required": ["factCoverage", "evidenceLocation", "reason", "suggestedQuestion", "advisories"],
+        "required": ["factCoverage", "evidenceLocations", "reason", "suggestedQuestion", "advisories"],
         "additionalProperties": False,
     }
 
 
-def structured_review_schema() -> dict:
-    return {
+def structured_review_schema(rules: list[dict] | None = None) -> dict:
+    """生成包含多条规则的完整 JSON Schema（顶层键为规则 ID）。"""
+    selected_rules = rules or RULES
+    schema = {
         "type": "object",
-        "properties": {rule["id"]: _rule_result_schema(rule) for rule in RULES},
-        "required": [rule["id"] for rule in RULES],
+        "properties": {rule["id"]: _rule_result_schema(rule) for rule in selected_rules},
+        "required": [rule["id"] for rule in selected_rules],
         "additionalProperties": False,
     }
+    log_event(logging.DEBUG, "qwen.schema_built", rule_ids=[rule["id"] for rule in selected_rules], strict=True, max_evidence_locations=3)
+    return schema
 
 
-def _prompt(document: ParsedDocument) -> str:
+# ═══════════════════════════════════════════════════════════════
+# Prompt 构造
+# ═══════════════════════════════════════════════════════════════
+
+def _prompt(document: ParsedDocument, rules: list[dict] | None = None) -> str:
+    """构建模型审查提示词。
+
+    包含三个部分：
+    1. 角色定义与行为约束（不得定性、不得补写）。
+    2. factCoverage 填报规则（covered/missing/unknown 的判别标准）。
+    3. 序列化的规则定义与标准笔录全文。
+    """
+    selected_rules = rules or RULES
+    # 将段落文本按 "第X页-第Y段[来源] 原文" 格式编号
     located = "\n".join(
         f"[第{page.page}页-第{index + 1}段][{paragraph.sourceType.value}] {paragraph.text}"
         for page in document.pages
         for index, paragraph in enumerate(page.paragraphs)
     )
+    # 仅暴露规则的必要字段（隐藏内部元数据）
     public_rules = [{
         "ruleId": rule["id"],
         "ruleName": rule["name"],
@@ -87,7 +153,7 @@ def _prompt(document: ParsedDocument) -> str:
         "referenceHints": [hint["label"] for hint in rule["referenceHints"]],
         "evidencePolicy": rule["evidencePolicy"],
         "suggestedQuestion": rule["suggestedQuestion"],
-    } for rule in RULES]
+    } for rule in selected_rules]
     return f"""你是公安机关电信网络诈骗询问笔录的辅助复盘工具。你只检查固定的三现四流工作规则，不得作出案件定性、法律结论、责任判断或证据效力判断，不得补写笔录中没有的事实。
 
 逐项判断 requiredFacts，并填写 factCoverage：
@@ -96,10 +162,10 @@ def _prompt(document: ParsedDocument) -> str:
 - unknown：已经问到该事实，但回答为不知道、不记得、无法提供等不可核验内容。
 
 factCoverage 的键必须逐字复制当前规则 requiredFacts，不能使用 referenceHints、改写标签或新增字段。程序将根据全部固定事实键确定性生成总体 status 和 missingFacts，模型不要自行输出这两个字段。
-referenceHints 来自补充资料，只能帮助搜索和生成 advisories，绝不能写入 missingFacts，也不能改变 status。advisories 是非强制的“补充关注”，不得表述为明确漏问。
+referenceHints 来自补充资料，只能帮助搜索和生成 advisories，绝不能写入 missingFacts，也不能改变 status。advisories 是非强制的"补充关注"，不得表述为明确漏问。
 
-证据要求：如果任一事实为 covered 或 unknown，evidenceLocation 必须从标准笔录索引中选择一个真实存在、最能支持本规则判断的页码和段落号；如果全部事实为 missing，位置必须为 null。不要输出 evidence，程序会根据位置直接读取原文。存在 missing 或 unknown 事实时必须给出建议补问。
-严格按照服务端提供的 JSON Schema 输出。顶层七个固定键分别对应七条规则，不得遗漏、增加或重复。每个键下必须逐项填写所有 factCoverage。
+证据要求：如果任一事实为 covered 或 unknown，evidenceLocations 必须从标准笔录索引中选择 1 到 3 个真实存在、最能支持本规则判断的页码和段落号；如果全部事实为 missing，位置必须为空数组。不要输出 evidence，程序会根据位置直接读取原文。存在 missing 或 unknown 事实时必须给出建议补问。
+严格按照服务端提供的 JSON Schema 输出。顶层键只能是当前分组提供的固定规则 ID，不得遗漏、增加或重复。每个键下必须逐项填写所有 factCoverage。
 
 固定规则：
 {json.dumps(public_rules, ensure_ascii=False)}
@@ -108,10 +174,26 @@ referenceHints 来自补充资料，只能帮助搜索和生成 advisories，绝
 {located}"""
 
 
-def _parse_structured(content: str) -> ModelReviewOutput:
+# ═══════════════════════════════════════════════════════════════
+# 模型原始输出解析
+# ═══════════════════════════════════════════════════════════════
+
+def _parse_structured(content: str, rules: list[dict]) -> dict[str, ModelRuleResult]:
+    """将模型输出的 JSON 字符串解析为 ModelRuleResult 字典。
+
+    Raises:
+        AppError: 解析失败或规则键不匹配时抛出（可重试）。
+    """
     try:
-        return ModelReviewOutput.model_validate_json(content)
-    except ValidationError as exc:
+        log_payload("qwen.raw_structured_content", content, rule_ids=[rule["id"] for rule in rules])
+        payload = json.loads(content)
+        if not isinstance(payload, dict) or set(payload) != {rule["id"] for rule in rules}:
+            raise ValueError("rule keys do not match the selected group")
+        parsed = {rule["id"]: ModelRuleResult.model_validate(payload[rule["id"]]) for rule in rules}
+        log_event(logging.DEBUG, "qwen.structured_parsed", rule_ids=list(parsed), result_count=len(parsed))
+        return parsed
+    except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        log_event(logging.WARNING, "qwen.structured_parse_failed", error_type=type(exc).__name__, rule_ids=[rule["id"] for rule in rules])
         raise AppError(
             "invalid_model_response",
             "模型返回内容不符合严格 JSON Schema。",
@@ -122,6 +204,10 @@ def _parse_structured(content: str) -> ModelReviewOutput:
         ) from exc
 
 
+# ═══════════════════════════════════════════════════════════════
+# 确定性校验（20+ 项业务规则）
+# ═══════════════════════════════════════════════════════════════
+
 def _validation_error(
     code: str,
     message: str,
@@ -130,6 +216,7 @@ def _validation_error(
     field: str | None = None,
     correction_hint: str,
 ) -> AppError:
+    """构造带重试策略的校验错误（retry_strategy="schema"）。"""
     return AppError(
         code,
         message,
@@ -141,16 +228,40 @@ def _validation_error(
     )
 
 
-def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
+def _validate(payload: dict, document: ParsedDocument, rules: list[dict] | None = None) -> list[ReviewResult]:
+    """确定性校验的核心函数 — 验证模型输出是否符合全部业务规则。
+
+    校验项（按执行顺序）：
+    1. results 字段存在且长度与规则数一致。
+    2. 每条结果包含有效的 ruleId（无重复、无未知规则）。
+    3. RuleStatus 合法且与 scope 兼容（base 规则不能为 NOT_APPLICABLE）。
+    4. 条件规则的 triggered/not_applicable 逻辑一致性。
+    5. missingFacts 只包含白名单标签。
+    6. evidenceLocations 指向真实段落且证据原文匹配。
+    7. 状态与缺失字段的一致性（covered 不能有缺失，missing 必须有缺失）。
+    8. 证据内容与定位段落原文一致（逐字匹配）。
+
+    Args:
+        payload:  模型完整的输出字典（含 results 列表）。
+        document: 标准笔录文档，用于验证证据位置与原文。
+        rules:    当前分组的规则列表。
+
+    Returns:
+        确定性校验通过后的 ReviewResult 列表。
+
+    Raises:
+        AppError: 任意校验项不通过时抛出（带有具体的字段和修正提示）。
+    """
+    selected_rules = rules or RULES
     raw_results = payload.get("results")
-    if not isinstance(raw_results, list) or len(raw_results) != len(RULES):
+    if not isinstance(raw_results, list) or len(raw_results) != len(selected_rules):
         raise _validation_error(
             "incomplete_model_results",
             "模型未返回完整规则结果。",
             field="results",
-            correction_hint=f"必须完整返回 {len(RULES)} 条固定规则。",
+            correction_hint=f"必须完整返回当前分组的 {len(selected_rules)} 条固定规则。",
         )
-    rules_by_id = {rule["id"]: rule for rule in RULES}
+    rules_by_id = {rule["id"]: rule for rule in selected_rules}
     seen: set[str] = set()
     results: list[ReviewResult] = []
     for raw in raw_results:
@@ -182,6 +293,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 correction_hint="状态必须使用当前规则允许的枚举值。",
             ) from exc
         rule = rules_by_id[rule_id]
+        # 基础规则不得为 NOT_APPLICABLE
         if rule["scope"] == "base" and status == RuleStatus.NOT_APPLICABLE:
             raise _validation_error(
                 "invalid_model_results",
@@ -190,6 +302,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 field="status",
                 correction_hint="基础规则必须判断为 covered、missing 或 incomplete。",
             )
+        # 条件规则：有触发词 → 不能为 NOT_APPLICABLE；无触发词 → 必须为 NOT_APPLICABLE
         if rule["scope"] == "conditional":
             triggered = any(trigger in document.text for trigger in rule["triggers"])
             if triggered == (status == RuleStatus.NOT_APPLICABLE):
@@ -225,6 +338,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
         missing_facts = [item.strip() for item in raw_missing_facts if item.strip()]
         advisories = [item.strip() for item in raw_advisories if item.strip()]
         allowed_facts = {fact["label"] for fact in rule["requiredFacts"]}
+        # 缺失字段必须在当前规则的 requiredFacts 白名单内
         if any(fact not in allowed_facts for fact in missing_facts):
             allowed_labels = [fact["label"] for fact in rule["requiredFacts"]]
             raise _validation_error(
@@ -234,6 +348,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 field="missingFacts",
                 correction_hint="missingFacts 只允许以下值：" + "、".join(allowed_labels) + "。不得使用 referenceHints 或自建字段。",
             )
+        # covered 和 not_applicable 的 missingFacts 必须为空
         if status in {RuleStatus.COVERED, RuleStatus.NOT_APPLICABLE} and missing_facts:
             raise _validation_error(
                 "invalid_model_results",
@@ -242,6 +357,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 field="missingFacts",
                 correction_hint="covered 或 not_applicable 的 missingFacts 必须为空。",
             )
+        # missing 和 incomplete 必须有缺失字段
         if status in {RuleStatus.MISSING, RuleStatus.INCOMPLETE} and not missing_facts:
             raise _validation_error(
                 "invalid_model_results",
@@ -250,6 +366,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 field="missingFacts",
                 correction_hint="missing 或 incomplete 至少列出一个当前规则的强制缺失字段。",
             )
+        # reason 不能为空；适用规则必须有 evidence
         if not reason or (status != RuleStatus.NOT_APPLICABLE and not evidence):
             raise _validation_error(
                 "insufficient_evidence",
@@ -258,6 +375,7 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 field="evidence",
                 correction_hint="reason 不能为空；适用规则必须引用原文 evidence。",
             )
+        # missing 和 incomplete 必须有建议补问
         if status in {RuleStatus.MISSING, RuleStatus.INCOMPLETE} and not suggestion:
             raise _validation_error(
                 "invalid_model_results",
@@ -267,41 +385,66 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
                 correction_hint="missing 或 incomplete 必须给出可直接使用的建议补问。",
             )
 
-        location = None
-        source_paragraph = None
-        raw_location = raw.get("evidenceLocation")
-        if isinstance(raw_location, dict):
+        # ── evidenceLocations 校验 ──
+        raw_locations = raw.get("evidenceLocations")
+        # 兼容旧版单字段 evidenceLocation
+        if raw_locations is None and isinstance(raw.get("evidenceLocation"), dict):
+            raw_locations = [raw["evidenceLocation"]]
+        if not isinstance(raw_locations, list) or len(raw_locations) > 3:
+            raise _validation_error(
+                "invalid_model_results",
+                "证据定位必须是最多三个页段位置。",
+                rule_id=rule_id,
+                field="evidenceLocations",
+                correction_hint="evidenceLocations 必须是最多 3 个真实页段位置的数组。",
+            )
+        locations: list[EvidenceLocation] = []
+        source_paragraphs: list[str] = []
+        for raw_location in raw_locations:
+            if not isinstance(raw_location, dict):
+                raise _validation_error(
+                    "invalid_model_results",
+                    "证据定位格式无效。",
+                    rule_id=rule_id,
+                    field="evidenceLocations",
+                    correction_hint="每个证据定位必须包含 page 和 paragraph。",
+                )
             page_no, paragraph_no = raw_location.get("page"), raw_location.get("paragraph")
             page = next((item for item in document.pages if item.page == page_no), None)
-            if page and isinstance(paragraph_no, int) and 1 <= paragraph_no <= len(page.paragraphs):
-                location = EvidenceLocation(page=page_no, paragraph=paragraph_no)
-                source_paragraph = page.paragraphs[paragraph_no - 1].text
-        if status in {RuleStatus.COVERED, RuleStatus.INCOMPLETE} and location is None:
+            if not page or not isinstance(paragraph_no, int) or not 1 <= paragraph_no <= len(page.paragraphs):
+                continue
+            location = EvidenceLocation(page=page_no, paragraph=paragraph_no)
+            if location not in locations:
+                locations.append(location)
+                source_paragraphs.append(page.paragraphs[paragraph_no - 1].text)
+        # covered 和 incomplete 必须至少有一个有效的证据定位
+        if status in {RuleStatus.COVERED, RuleStatus.INCOMPLETE} and not locations:
             raise _validation_error(
                 "insufficient_evidence",
                 "已覆盖或回答不完整的结论缺少原文定位。",
                 rule_id=rule_id,
-                field="evidenceLocation",
-                correction_hint="从标准笔录索引中复制真实存在的 page 和 paragraph。",
+                field="evidenceLocations",
+                correction_hint="从标准笔录索引中复制至少一个真实存在的 page 和 paragraph。",
             )
-        if status == RuleStatus.MISSING and raw_location is not None:
+        # missing 的 evidenceLocations 必须为空
+        if status == RuleStatus.MISSING and locations:
             raise _validation_error(
                 "invalid_model_results",
                 "完全缺失的结论不应伪造原文定位。",
                 rule_id=rule_id,
-                field="evidenceLocation",
-                correction_hint="missing 的 evidenceLocation 必须为 null。",
+                field="evidenceLocations",
+                correction_hint="missing 的 evidenceLocations 必须为空数组。",
             )
-        if source_paragraph is not None:
+        # 证据原文必须与定位段落原文匹配（逐字检查）
+        if source_paragraphs:
             compact_evidence = "".join(evidence.split())
-            compact_source = "".join(source_paragraph.split())
-            if compact_evidence not in compact_source and compact_source not in compact_evidence:
+            if any("".join(source.split()) not in compact_evidence for source in source_paragraphs):
                 raise _validation_error(
                     "insufficient_evidence",
                     "模型证据与定位段落不一致。",
                     rule_id=rule_id,
                     field="evidence",
-                    correction_hint="逐字引用 evidenceLocation 指向段落中的原文，不得概括。",
+                    correction_hint="逐字引用 evidenceLocations 指向段落中的原文，不得概括。",
                 )
 
         results.append(ReviewResult(
@@ -312,7 +455,8 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
             status=status,
             missingFacts=missing_facts,
             evidence=evidence,
-            evidenceLocation=location,
+            evidenceLocation=locations[0] if locations else None,
+            evidenceLocations=locations,
             reason=reason,
             suggestedQuestion="" if status in {RuleStatus.COVERED, RuleStatus.NOT_APPLICABLE} else suggestion,
             advisories=advisories,
@@ -322,10 +466,19 @@ def _validate(payload: dict, document: ParsedDocument) -> list[ReviewResult]:
     return results
 
 
-def _messages(document: ParsedDocument, correction: AppError | None = None) -> list[dict]:
+# ═══════════════════════════════════════════════════════════════
+# LLM 消息构造与通信
+# ═══════════════════════════════════════════════════════════════
+
+def _messages(document: ParsedDocument, rules: list[dict], correction: AppError | None = None) -> list[dict]:
+    """构造 LLM 对话消息列表。
+
+    首次请求：system + user（含提示词与笔录）。
+    重试请求：增加一条 user 消息，包含上次校验失败的具体反馈。
+    """
     messages = [
         {"role": "system", "content": "严格依据固定规则审查，只能使用标准笔录中的事实，并按服务端结构化输出约束返回完整结果。"},
-        {"role": "user", "content": _prompt(document)},
+        {"role": "user", "content": _prompt(document, rules)},
     ]
     if correction is not None:
         feedback = {
@@ -333,17 +486,42 @@ def _messages(document: ParsedDocument, correction: AppError | None = None) -> l
             "errorCode": correction.code,
             "ruleId": correction.rule_id,
             "field": correction.field,
-            "instruction": correction.correction_hint or "重新生成全部七条规则并严格满足 JSON Schema。",
+            "instruction": correction.correction_hint or "重新生成当前分组的全部规则并严格满足 JSON Schema。",
         }
         messages.append({
             "role": "user",
-            "content": "上一次完整结果未通过确定性校验。不要局部修补，重新生成全部七条规则。校验反馈："
+            "content": "上一次完整结果未通过确定性校验。不要局部修补，重新生成当前分组的全部规则。校验反馈："
             + json.dumps(feedback, ensure_ascii=False),
         })
     return messages
 
 
 async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy: str) -> dict:
+    """向 Qwen API 发送聊天补全请求并返回消息内容。
+
+    Args:
+        client:   HTTP 客户端。
+        payload:  请求体（含 model、messages、response_format 等）。
+        strategy: 当前策略标识（"schema" 或 "tool"），用于错误处理。
+
+    Raises:
+        AppError: 网络错误、鉴权失败、模型不可达等。
+    """
+    started = perf_counter()
+    rule_ids = []
+    if strategy == "schema":
+        rule_ids = payload.get("response_format", {}).get("json_schema", {}).get("schema", {}).get("required", [])
+    elif payload.get("tools"):
+        rule_ids = payload["tools"][0].get("function", {}).get("parameters", {}).get("required", [])
+    log_event(
+        logging.INFO,
+        "qwen.request_started",
+        strategy=strategy,
+        model=payload.get("model"),
+        rule_ids=rule_ids,
+        message_count=len(payload.get("messages", [])),
+    )
+    log_payload("qwen.request_messages", payload.get("messages", []), strategy=strategy, rule_ids=rule_ids)
     try:
         response = await client.post(
             f"{QWEN_BASE_URL}/chat/completions",
@@ -351,6 +529,7 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
             json=payload,
         )
     except httpx.HTTPError as exc:
+        log_event(logging.WARNING, "qwen.request_network_failed", strategy=strategy, rule_ids=rule_ids, duration_ms=round((perf_counter() - started) * 1000), error_type=type(exc).__name__)
         raise AppError(
             "model_unreachable",
             "Qwen 模型服务当前不可达，请检查网络或模型配置。",
@@ -358,10 +537,13 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
             retry_strategy="schema",
         ) from exc
     if response.status_code in {401, 403}:
+        log_event(logging.ERROR, "qwen.request_auth_failed", strategy=strategy, rule_ids=rule_ids, status_code=response.status_code)
         raise AppError("model_auth_failed", "Qwen 模型鉴权失败，请检查模型配置。", 503)
     if not response.is_success:
+        log_event(logging.WARNING, "qwen.request_http_failed", strategy=strategy, rule_ids=rule_ids, status_code=response.status_code, duration_ms=round((perf_counter() - started) * 1000))
         response_text = response.text.lower()
         unsupported_markers = ("json_schema", "response_format", "tool_choice", "tool_calls", "tools")
+        # 400/422 + 不受支持的 Schema 关键字 → 服务端不支持 JSON Schema
         if strategy == "schema" and response.status_code in {400, 422} and any(marker in response_text for marker in unsupported_markers):
             raise AppError(
                 "structured_output_unsupported",
@@ -396,20 +578,44 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
             502,
             retry_strategy="tool" if strategy == "schema" else None,
         )
+    usage = data.get("usage") if isinstance(data, dict) else None
+    log_event(
+        logging.INFO,
+        "qwen.request_completed",
+        strategy=strategy,
+        rule_ids=rule_ids,
+        status_code=response.status_code,
+        duration_ms=round((perf_counter() - started) * 1000),
+        usage=usage,
+    )
+    log_payload("qwen.response_message", message, strategy=strategy, rule_ids=rule_ids)
     return message
 
 
-async def _request_schema_review(client: httpx.AsyncClient, document: ParsedDocument, correction: AppError | None = None) -> ModelReviewOutput:
+# ═══════════════════════════════════════════════════════════════
+# 两种审查调用策略
+# ═══════════════════════════════════════════════════════════════
+
+async def _request_schema_review(
+    client: httpx.AsyncClient,
+    document: ParsedDocument,
+    rules: list[dict],
+    correction: AppError | None = None,
+) -> dict[str, ModelRuleResult]:
+    """使用 JSON Schema 模式调用模型（优先策略）。"""
+    messages = _messages(document, rules, correction)
+    prompt = messages[1]["content"]
+    log_payload("qwen.constraint_prompt", prompt, strategy="schema", group=rules[0]["group"], rule_ids=[rule["id"] for rule in rules], retry=correction is not None)
     message = await _post_completion(client, {
         "model": QWEN_MODEL,
         "temperature": 0.1,
-        "messages": _messages(document, correction),
+        "messages": messages,
         "response_format": {
             "type": "json_schema",
             "json_schema": {
                 "name": "three_present_four_flows_review",
                 "strict": True,
-                "schema": structured_review_schema(),
+                "schema": structured_review_schema(rules),
             },
         },
     }, strategy="schema")
@@ -422,20 +628,27 @@ async def _request_schema_review(client: httpx.AsyncClient, document: ParsedDocu
             retry_strategy="tool",
             field="content",
         )
-    return _parse_structured(content)
+    return _parse_structured(content, rules)
 
 
-async def _request_tool_review(client: httpx.AsyncClient, document: ParsedDocument) -> ModelReviewOutput:
+async def _request_tool_review(
+    client: httpx.AsyncClient,
+    document: ParsedDocument,
+    rules: list[dict],
+) -> dict[str, ModelRuleResult]:
+    """使用 Tool Calling 模式调用模型（降级策略 — 当 Schema 模式不可用时）。"""
+    messages = _messages(document, rules)
+    log_payload("qwen.constraint_prompt", messages[1]["content"], strategy="tool", group=rules[0]["group"], rule_ids=[rule["id"] for rule in rules])
     message = await _post_completion(client, {
         "model": QWEN_MODEL,
         "temperature": 0.1,
-        "messages": _messages(document),
+        "messages": messages,
         "tools": [{
             "type": "function",
             "function": {
                 "name": TOOL_NAME,
                 "description": "提交固定七条三现四流审查结果。",
-                "parameters": structured_review_schema(),
+                "parameters": structured_review_schema(rules),
                 "strict": True,
             },
         }],
@@ -447,26 +660,48 @@ async def _request_tool_review(client: httpx.AsyncClient, document: ParsedDocume
     function = tool_calls[0].get("function") if isinstance(tool_calls[0], dict) else None
     if not isinstance(function, dict) or function.get("name") != TOOL_NAME or not isinstance(function.get("arguments"), str):
         raise AppError("invalid_model_response", "Qwen 返回了无效的结构化审查工具参数。", 502)
-    return _parse_structured(function["arguments"])
+    return _parse_structured(function["arguments"], rules)
 
 
-def _evidence_from_location(document: ParsedDocument, raw_location: dict | None) -> str:
-    if isinstance(raw_location, dict):
+# ═══════════════════════════════════════════════════════════════
+# 结果构造辅助函数
+# ═══════════════════════════════════════════════════════════════
+
+def _evidence_from_locations(document: ParsedDocument, raw_locations: list[dict]) -> str:
+    """根据模型输出的证据定位，从文档中提取原文作为证据。"""
+    paragraphs: list[str] = []
+    for raw_location in raw_locations:
         page_no = raw_location.get("page")
         paragraph_no = raw_location.get("paragraph")
         page = next((item for item in document.pages if item.page == page_no), None)
         if page and isinstance(paragraph_no, int) and 1 <= paragraph_no <= len(page.paragraphs):
-            return page.paragraphs[paragraph_no - 1].text
-    return "原文定位无效，需重新选择页码和段落号。"
+            text = page.paragraphs[paragraph_no - 1].text
+            if text not in paragraphs:
+                paragraphs.append(text)
+    return "\n".join(paragraphs) if paragraphs else "原文定位无效，需重新选择页码和段落号。"
 
 
-def _validation_payload(output: ModelReviewOutput, document: ParsedDocument) -> dict:
-    keyed = output.as_keyed_payload()
+def _validation_payload(
+    output: dict[str, ModelRuleResult],
+    document: ParsedDocument,
+    rules: list[dict] | None = None,
+) -> dict:
+    """将模型结构化输出转换为确定性校验所需的统一 payload 格式。
+
+    核心功能：
+    - 根据 factCoverage 自动推导 status（全部 covered → COVERED，
+      全部 missing → MISSING，否则 → INCOMPLETE）。
+    - 从定位位置提取原文作为 evidence。
+    - 注入规则元数据（ruleId、status、missingFacts、evidence）。
+    - 校验 factCoverage 的键是否与规则定义完全一致。
+    """
+    selected_rules = rules or RULES
     results = []
-    for rule in RULES:
-        raw = keyed[rule["id"]]
+    for rule in selected_rules:
+        raw = output[rule["id"]].model_dump(mode="json")
         coverage = raw.pop("factCoverage")
         labels = [fact["label"] for fact in rule["requiredFacts"]]
+        # 校验键名一致性
         if set(coverage) != set(labels):
             raise _validation_error(
                 "invalid_model_results",
@@ -484,9 +719,9 @@ def _validation_payload(output: ModelReviewOutput, document: ParsedDocument) -> 
             status = RuleStatus.INCOMPLETE
         missing_facts = [label for label in labels if coverage[label] != "covered"]
         evidence = (
-            f"全文未检索到“{rule['name']}”相关强制事实。"
+            f"全文未检索到「{rule['name']}」相关强制事实。"
             if status == RuleStatus.MISSING
-            else _evidence_from_location(document, raw.get("evidenceLocation"))
+            else _evidence_from_locations(document, raw.get("evidenceLocations", []))
         )
         results.append({
             "ruleId": rule["id"],
@@ -498,23 +733,119 @@ def _validation_payload(output: ModelReviewOutput, document: ParsedDocument) -> 
     return {"results": results}
 
 
-def _validated_results(output: ModelReviewOutput, document: ParsedDocument) -> list[ReviewResult]:
+def _validated_results(output: dict[str, ModelRuleResult], document: ParsedDocument) -> list[ReviewResult]:
+    """从模型结构化输出到最终校验结果的完整转换。"""
     return _validate(_validation_payload(output, document), document)
 
 
-async def review_with_qwen(document: ParsedDocument) -> list[ReviewResult]:
+# ═══════════════════════════════════════════════════════════════
+# 分组审查与重试逻辑
+# ═══════════════════════════════════════════════════════════════
+
+async def _review_rule_group_once(
+    client: httpx.AsyncClient,
+    document: ParsedDocument,
+    rules: list[dict],
+    correction: AppError | None = None,
+) -> dict[str, ModelRuleResult]:
+    """单次规则分组审查（无重试）。"""
+    group = rules[0]["group"]
+    log_event(logging.INFO, "qwen.group_attempt", group=group, attempt=2 if correction else 1, rule_ids=[rule["id"] for rule in rules], correction_code=correction.code if correction else None)
+    output = await _request_schema_review(client, document, rules, correction)
+    validated = _validate(_validation_payload(output, document, rules), document, rules)
+    log_event(logging.INFO, "qwen.group_validated", group=group, attempt=2 if correction else 1, statuses={result.ruleId: result.status.value for result in validated})
+    return output
+
+
+async def _review_rule_group(
+    client: httpx.AsyncClient,
+    document: ParsedDocument,
+    rules: list[dict],
+) -> dict[str, ModelRuleResult]:
+    """带重试机制的规则分组审查。
+
+    重试顺序：
+    1. 首次尝试 Schema 模式调用。
+    2. 若 Schema 模式失败 → 降级为 Tool 模式。
+    3. 若网络/服务临时故障 → 等待 1 秒后带反馈重试 Schema 模式。
+    4. 鉴权/配置错误 → 直接抛出。
+    """
+    try:
+        return await _review_rule_group_once(client, document, rules)
+    except AppError as first_error:
+        group = rules[0]["group"]
+        log_event(logging.WARNING, "qwen.group_first_attempt_failed", group=group, code=first_error.code, retry_strategy=first_error.retry_strategy, rule_id=first_error.rule_id, field=first_error.field)
+        if first_error.code in {"model_not_configured", "model_auth_failed"}:
+            log_event(logging.ERROR, "qwen.group_not_retryable", group=group, code=first_error.code)
+            raise
+        if first_error.retry_strategy == "tool":
+            log_event(logging.INFO, "qwen.group_retry", group=group, attempt=2, strategy="tool", reason=first_error.code)
+            output = await _request_tool_review(client, document, rules)
+            validated = _validate(_validation_payload(output, document, rules), document, rules)
+            log_event(logging.INFO, "qwen.group_validated", group=group, attempt=2, statuses={result.ruleId: result.status.value for result in validated})
+            return output
+        if first_error.code in {"model_unreachable", "model_request_failed"}:
+            log_event(logging.INFO, "qwen.group_retry_wait", group=group, delay_ms=1000, reason=first_error.code)
+            await asyncio.sleep(1)
+        log_event(logging.INFO, "qwen.group_retry", group=group, attempt=2, strategy="schema", reason=first_error.code)
+        return await _review_rule_group_once(client, document, rules, first_error)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 公开入口
+# ═══════════════════════════════════════════════════════════════
+
+async def review_with_qwen(
+    document: ParsedDocument,
+    *,
+    group_timings: dict[str, int] | None = None,
+) -> list[ReviewResult]:
+    """对一份笔录执行完整的 Qwen 三现四流审查。
+
+    执行流程：
+    1. 按"三现"、"四流"两个分组并行调用模型。
+    2. 每个分组内部带有自动重试与降级机制。
+    3. 合并两个分组的结果，校验完整性。
+    4. 返回通过确定性校验的 ReviewResult 列表。
+
+    Args:
+        document:       标准化笔录文档。
+        group_timings:  可选，用于记录每个分组的耗时。
+
+    Returns:
+        通过确定性校验的审查结果列表（7 条规则）。
+
+    Raises:
+        AppError: 模型未配置、返回不完整结果等。
+    """
     if not all([QWEN_BASE_URL, QWEN_API_KEY, QWEN_MODEL]):
         raise AppError("model_not_configured", "Qwen 模型尚未配置。", 503)
+    groups = [
+        (group, [rule for rule in RULES if rule["group"] == group])
+        for group in ("三现", "四流")
+    ]
+    log_event(logging.INFO, "qwen.review_started", model=QWEN_MODEL, document= document.name, pages=document.pageCount, chars=len(document.text), groups={group: [rule["id"] for rule in rules] for group, rules in groups})
     timeout = httpx.Timeout(120.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        try:
-            return _validated_results(await _request_schema_review(client, document), document)
-        except AppError as first_error:
-            if first_error.retry_strategy is None:
-                raise
-            if first_error.retry_strategy == "tool":
-                return _validated_results(await _request_tool_review(client, document), document)
-            if first_error.code in {"model_unreachable", "model_request_failed"}:
-                await asyncio.sleep(1)
-                return _validated_results(await _request_schema_review(client, document), document)
-            return _validated_results(await _request_schema_review(client, document, first_error), document)
+        async def run_group(group: str, rules: list[dict]):
+            started = perf_counter()
+            log_event(logging.INFO, "qwen.group_started", group=group, rule_count=len(rules))
+            try:
+                return group, await _review_rule_group(client, document, rules)
+            finally:
+                duration_ms = round((perf_counter() - started) * 1000)
+                if group_timings is not None:
+                    group_timings[group] = duration_ms
+                log_event(logging.INFO, "qwen.group_finished", group=group, duration_ms=duration_ms)
+
+        completed = await asyncio.gather(*(run_group(group, rules) for group, rules in groups))
+    merged: dict[str, ModelRuleResult] = {}
+    for _group, output in completed:
+        merged.update(output)
+    if set(merged) != {rule["id"] for rule in RULES}:
+        log_event(logging.ERROR, "qwen.merge_incomplete", expected=[rule["id"] for rule in RULES], actual=list(merged))
+        raise AppError("incomplete_model_results", "模型未返回完整规则结果。", 502)
+    log_payload("qwen.groups_merged", {rule_id: result.model_dump(mode="json") for rule_id, result in merged.items()}, rule_ids=list(merged))
+    validated = _validated_results(merged, document)
+    log_event(logging.INFO, "qwen.review_completed", result_count=len(validated), statuses={result.ruleId: result.status.value for result in validated}, group_durations_ms=group_timings or {})
+    return validated

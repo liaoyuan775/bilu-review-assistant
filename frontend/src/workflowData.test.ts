@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { workflowEdges, workflowNodes, workflowStages } from "./workflowData";
+import { displayWorkflowEdges, displayWorkflowNodes, workflowEdges, workflowNodes, workflowStages } from "./workflowData";
 
 describe("workflow data", () => {
   it("defines the complete ordered review pipeline", () => {
@@ -39,5 +39,17 @@ describe("workflow data", () => {
       expect(node.data.output).toBeTruthy();
       expect(node.data.exception).toBeTruthy();
     }
+  });
+
+  it("renders one numbered main path without diagnostic exits", () => {
+    expect(displayWorkflowNodes.map((node) => node.id)).toEqual(workflowStages);
+    expect(displayWorkflowEdges.map((edge) => `${edge.source}->${edge.target}`)).toEqual([
+      "validate->normalize",
+      "normalize->recognize",
+      "recognize->three-four-review",
+      "three-four-review->evidence-validation",
+      "evidence-validation->manual-action",
+    ]);
+    expect(displayWorkflowEdges.every((edge) => edge.data?.kind === "main")).toBe(true);
   });
 });

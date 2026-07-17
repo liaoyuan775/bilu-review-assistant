@@ -1,10 +1,13 @@
 import base64
 import json
+import logging
 import re
+from time import perf_counter
 
 import httpx
 
 from app.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
+from app.development_logging import log_event, log_payload
 from app.errors import AppError
 
 
@@ -39,6 +42,9 @@ async def transcribe_image(image: bytes, media_type: str = "image/png") -> dict:
         "只返回 JSON：{\"paragraphs\":[\"...\"],\"confidence\":0.0}。"
         "paragraphs 按阅读顺序分段；confidence 为本页整体识别置信度（0 到 1）。"
     )
+    started = perf_counter()
+    log_event(logging.INFO, "vision.request_started", media_type=media_type, bytes=len(image), model=QWEN_MODEL)
+    log_payload("vision.prompt", prompt, media_type=media_type)
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0), trust_env=False) as client:
             response = await client.post(
@@ -57,8 +63,10 @@ async def transcribe_image(image: bytes, media_type: str = "image/png") -> dict:
                 },
             )
     except httpx.HTTPError as exc:
+        log_event(logging.WARNING, "vision.request_failed", error_type=type(exc).__name__, duration_ms=round((perf_counter() - started) * 1000))
         raise AppError("model_unreachable", "多模态模型当前不可达，请检查网络或模型配置。", 503) from exc
     if not response.is_success:
+        log_event(logging.WARNING, "vision.http_failed", status_code=response.status_code, duration_ms=round((perf_counter() - started) * 1000))
         raise AppError("model_request_failed", f"多模态模型返回 HTTP {response.status_code}。", 502)
     try:
         data = response.json()
@@ -67,4 +75,7 @@ async def transcribe_image(image: bytes, media_type: str = "image/png") -> dict:
         raise AppError("invalid_vision_response", "多模态模型未返回有效响应。", 502) from exc
     if not isinstance(content, str):
         raise AppError("invalid_vision_response", "多模态模型未返回文本内容。", 502)
-    return _parse_response(content)
+    log_payload("vision.raw_response", content, media_type=media_type)
+    parsed = _parse_response(content)
+    log_event(logging.INFO, "vision.request_completed", duration_ms=round((perf_counter() - started) * 1000), paragraph_count=len(parsed["paragraphs"]), confidence=parsed["confidence"])
+    return parsed

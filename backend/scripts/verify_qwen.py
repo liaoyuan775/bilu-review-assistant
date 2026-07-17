@@ -8,7 +8,8 @@ backend_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(backend_root))
 
 from app.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL  # noqa: E402
-from app.data import DEMOS, RULES  # noqa: E402
+from app.data import RULES  # noqa: E402
+from app.demo_cases import DEMO_CASES, load_demo_document  # noqa: E402
 from app.errors import AppError  # noqa: E402
 from app.services.qwen import check_qwen, review_with_qwen  # noqa: E402
 
@@ -32,7 +33,7 @@ async def verify() -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 1
 
-    demo = next(item for item in DEMOS if item.id == "sample-telecom")
+    demo = await load_demo_document(DEMO_CASES[1])
     try:
         results = await review_with_qwen(demo)
     except AppError as error:
