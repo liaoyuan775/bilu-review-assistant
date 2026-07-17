@@ -6,13 +6,13 @@
 
 ## Current Phase
 
-Task 3 - 问答重建与模板说明隔离
+Task 4 - 版本化模板规则与确定性引擎
 
 ## Execution Plan
 
 - [x] Task 1: 隔离基线与损坏媒体模板回归
 - [x] Task 2: 容错 DOCX/PDF 解析和精确锚点
-- [ ] Task 3: 问答重建与模板说明隔离
+- [x] Task 3: 问答重建与模板说明隔离
 - [ ] Task 4: 版本化模板规则与确定性引擎
 - [ ] Task 5: Qwen 证据事实抽取与定向复核
 - [ ] Task 6: 文档、运行、问题、事件和产物持久化

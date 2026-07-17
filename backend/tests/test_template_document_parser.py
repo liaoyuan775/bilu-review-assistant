@@ -97,6 +97,25 @@ def test_docx_parser_preserves_header_and_footer_text():
     assert "被询问人签名：测试签名" in parsed.text
 
 
+def test_parsed_document_exposes_reconstructed_question_answers():
+    content = _simple_docx(
+        "问：是否收到风险提示？",
+        "答：收到银行短信提示。",
+    )
+
+    parsed = asyncio.run(parse_document("record.docx", content))
+
+    assert parsed.text == "问：是否收到风险提示？\n答：收到银行短信提示。"
+    assert len(parsed.pages) == 1
+    assert [(block.question, block.answer) for block in parsed.questionAnswers] == [
+        ("是否收到风险提示？", "收到银行短信提示。"),
+    ]
+    assert parsed.questionAnswers[0].anchorIds == [
+        parsed.pages[0].paragraphs[0].id,
+        parsed.pages[0].paragraphs[1].id,
+    ]
+
+
 def test_pdf_native_text_blocks_preserve_source_coordinates():
     parsed = asyncio.run(parse_document("record.pdf", _pdf_with_native_text()))
 
@@ -122,5 +141,11 @@ def test_provided_internal_template_is_parseable_when_available():
     ]
     assert len(body_blocks) == 144
     assert parsed.text.count("问：") + parsed.text.count("问:") == 33
+    assert len(parsed.questionAnswers) == 33
+    basic_information = next(
+        block for block in parsed.questionAnswers if "基本情况" in block.question
+    )
+    assert basic_information.answer == ""
+    assert any("事主基本信息" in item for item in basic_information.guidance)
     assert "以上笔录给你看一下" in parsed.text
     assert any(warning.code == "media_corrupt" for warning in parsed.warnings)

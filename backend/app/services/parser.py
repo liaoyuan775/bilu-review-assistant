@@ -9,6 +9,7 @@ from app.development_logging import log_event, log_payload
 from app.errors import AppError
 from app.models import DocumentPage, DocumentParagraph, ParsedDocument, SourceType
 from app.services.openxml import read_docx_parts
+from app.services.question_answer import reconstruct_question_answers
 from app.services.vision import transcribe_image
 
 
@@ -189,6 +190,7 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
         text=full_text,
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
         warnings=package.warnings,
+        questionAnswers=reconstruct_question_answers(pages),
     )
     log_event(logging.INFO, "parser.docx_complete", filename=filename, pages=parsed.pageCount, paragraphs=len(blocks), images=len(package.images), warnings=len(package.warnings), chars=len(parsed.text))
     log_payload("document.parsed_text", parsed.text, filename=filename, format=parsed.format)
@@ -248,6 +250,7 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
         pages=pages,
         text=full_text,
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
+        questionAnswers=reconstruct_question_answers(pages),
     )
     log_event(logging.INFO, "parser.pdf_complete", filename=filename, pages=parsed.pageCount, paragraphs=sum(len(page.paragraphs) for page in pages), chars=len(parsed.text))
     log_payload("document.parsed_text", parsed.text, filename=filename, format=parsed.format)

@@ -159,6 +159,16 @@ class DocumentWarning(BaseModel):
     partName: str | None = None
 
 
+class QuestionAnswerBlock(BaseModel):
+    """A reconstructed interview exchange with source and template guidance kept separate."""
+    id: str
+    question: str
+    answer: str
+    guidance: list[str] = Field(default_factory=list)
+    anchorIds: list[str] = Field(default_factory=list)
+    answerClarity: Literal["clear", "blank", "unclear"]
+
+
 class ParsedDocument(BaseModel):
     """标准化后的文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。"""
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -169,6 +179,7 @@ class ParsedDocument(BaseModel):
     text: str         # 全文拼接文本，用于关键词搜索
     sizeLabel: str    # 用户可读的大小标签（如"脱敏样例"）
     warnings: list[DocumentWarning] = Field(default_factory=list)
+    questionAnswers: list[QuestionAnswerBlock] = Field(default_factory=list)
 
 
 # ═══════════════════════════════════════════════════════════════

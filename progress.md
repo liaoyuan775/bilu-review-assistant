@@ -14,6 +14,9 @@
 - Added deterministic paragraph IDs and exact global character ranges for DOCX/PDF/OCR blocks.
 - Preserved DOCX header/footer stories as distinct source types without changing the 144-body-paragraph oracle.
 - Preserved native PDF text-block coordinates from PyMuPDF layout dictionaries.
+- Reconstructed same-paragraph, cross-paragraph, and cross-page question/answer blocks with stable source anchors.
+- Separated parenthetical template guidance from case answers and classified blank/unclear answers deterministically.
+- Verified the supplied template reconstructs exactly 33 question/answer blocks and keeps basic-information guidance out of facts.
 
 ## Verification Log
 
@@ -29,6 +32,10 @@
 | Task 2 full backend | `pytest -q tests` with actual template path | 54 passed |
 | Task 2 frontend regression | `npm run test` | 10 files / 36 tests passed |
 | Task 2 production build | `npm run build` | 1750 modules transformed, exit 0 |
+| Task 3 selected backend | `pytest -q test_question_answer.py test_template_document_parser.py test_api.py` with actual template path | 40 passed |
+| Task 3 full backend | `pytest -q tests` with actual template path | 61 passed |
+| Task 3 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 3 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 
