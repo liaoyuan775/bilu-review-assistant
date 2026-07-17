@@ -48,6 +48,8 @@ class SourceType(StrEnum):
     NATIVE_TEXT = "native_text"  # DOCX 原生文本或 PDF 可提取文本
     TABLE = "table"              # 表格内容（按阅读顺序重组）
     VISION = "vision"            # 图像 OCR 识别文本
+    HEADER = "header"            # DOCX 页眉文本
+    FOOTER = "footer"            # DOCX 页脚文本
 
 
 class RuleStatus(StrEnum):
@@ -135,9 +137,13 @@ class DocumentParagraph(BaseModel):
         sourceType: 来源类型，决定如何渲染（文本/表格/图像识别）。
         confidence: 图像识别的置信度（0-1），仅 VISION 类型有效。
     """
+    id: str = ""
     text: str
     sourceType: SourceType
     confidence: float | None = Field(default=None, ge=0, le=1)
+    charStart: int = Field(default=0, ge=0)
+    charEnd: int = Field(default=0, ge=0)
+    bbox: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class DocumentPage(BaseModel):

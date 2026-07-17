@@ -11,6 +11,9 @@
 - Added a synthetic bad-CRC DOCX regression and an optional integration test for the provided internal template.
 - Replaced all-or-nothing `python-docx` package loading with selective Open XML body/media reading.
 - Actual template result: 144 paragraphs, 33 question markers, full start/end content, and four recoverable media warnings.
+- Added deterministic paragraph IDs and exact global character ranges for DOCX/PDF/OCR blocks.
+- Preserved DOCX header/footer stories as distinct source types without changing the 144-body-paragraph oracle.
+- Preserved native PDF text-block coordinates from PyMuPDF layout dictionaries.
 
 ## Verification Log
 
@@ -22,6 +25,10 @@
 | Tolerant parser full backend | `pytest -q tests` with actual template path | 51 passed |
 | Parser-compatible frontend | `npm run test` | 36 passed |
 | Parser-compatible build | `npm run build` | exit 0 |
+| Task 2 selected backend | `pytest -q test_template_document_parser.py test_parser.py test_api.py` with actual template path | 35 passed |
+| Task 2 full backend | `pytest -q tests` with actual template path | 54 passed |
+| Task 2 frontend regression | `npm run test` | 10 files / 36 tests passed |
+| Task 2 production build | `npm run build` | 1750 modules transformed, exit 0 |
 
 ## Error Log
 
@@ -29,3 +36,5 @@
 |------|-------|---------|------------|
 | 2026-07-18 00:24 | Actual-template test expected more than 4000 normalized characters; parser returned all 144 paragraphs in 3623 characters | 1 | Replaced arbitrary size threshold with exact paragraph/question/key-content assertions |
 | 2026-07-18 00:25 | Test counted only the 32 paragraph-leading questions | 2 | Corrected oracle to 33 question markers: 32 paragraph-leading plus one same-paragraph rights-notice question |
+| 2026-07-18 00:35 | Header/footer preservation made the actual-template aggregate block count 145 | 3 | Verified the source split is 144 native body blocks plus one footer and scoped the assertion accordingly |
+| 2026-07-18 00:35 | Scanned-PDF API test expected the old three-field paragraph schema | 4 | Updated the contract assertion to include stable ID, offsets, and nullable bbox |

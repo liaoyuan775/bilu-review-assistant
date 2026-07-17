@@ -249,11 +249,13 @@ def test_scanned_pdf_uses_multimodal_transcription(monkeypatch):
     assert task["status"] == "completed"
     assert transcribe.await_count == 1
     paragraph = task["document"]["pages"][0]["paragraphs"][0]
-    assert paragraph == {
-        "text": "问：转账金额是多少？答：5000元。",
-        "sourceType": "vision",
-        "confidence": 0.96,
-    }
+    assert paragraph["text"] == "问：转账金额是多少？答：5000元。"
+    assert paragraph["sourceType"] == "vision"
+    assert paragraph["confidence"] == 0.96
+    assert paragraph["id"]
+    assert paragraph["charStart"] == 0
+    assert paragraph["charEnd"] == len(paragraph["text"])
+    assert paragraph["bbox"] is None
 
 
 def test_mixed_pdf_keeps_native_text_and_transcribes_embedded_images(monkeypatch):

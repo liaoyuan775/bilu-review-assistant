@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 import re
+from hashlib import sha256
 
 import fitz
 from app.config import MAX_FILE_SIZE
@@ -84,6 +85,28 @@ def _native_blocks(text: str) -> list[DocumentParagraph]:
     return blocks
 
 
+def _native_pdf_blocks(pdf_page: fitz.Page) -> list[DocumentParagraph]:
+    text_blocks = [
+        block
+        for block in pdf_page.get_text("dict").get("blocks", [])
+        if block.get("type") == 0 and block.get("lines")
+    ]
+    text_blocks.sort(key=lambda block: (block["bbox"][1], block["bbox"][0]))
+
+    paragraphs: list[DocumentParagraph] = []
+    for block in text_blocks:
+        lines = [
+            "".join(span.get("text", "") for span in line.get("spans", []))
+            for line in block["lines"]
+        ]
+        bbox = [float(value) for value in block["bbox"]]
+        paragraphs.extend(
+            paragraph.model_copy(update={"bbox": bbox})
+            for paragraph in _native_blocks("\n".join(lines))
+        )
+    return paragraphs
+
+
 def _vision_blocks(payload: dict) -> list[DocumentParagraph]:
     confidence = float(payload["confidence"])
     return [
@@ -118,6 +141,28 @@ def _paginate(blocks: list[DocumentParagraph], target_chars: int = 1800) -> list
     return pages
 
 
+def _finalize_pages(pages: list[DocumentPage], content: bytes) -> tuple[list[DocumentPage], str]:
+    document_digest = sha256(content).hexdigest()
+    text_parts: list[str] = []
+    offset = 0
+    finalized_pages: list[DocumentPage] = []
+    for page in pages:
+        paragraphs: list[DocumentParagraph] = []
+        for index, paragraph in enumerate(page.paragraphs, start=1):
+            start = offset
+            end = start + len(paragraph.text)
+            identity = f"{document_digest}:{page.page}:{index}:{paragraph.sourceType.value}:{paragraph.text}"
+            paragraphs.append(paragraph.model_copy(update={
+                "id": sha256(identity.encode("utf-8")).hexdigest()[:24],
+                "charStart": start,
+                "charEnd": end,
+            }))
+            text_parts.append(paragraph.text)
+            offset = end + 1
+        finalized_pages.append(page.model_copy(update={"paragraphs": paragraphs}))
+    return finalized_pages, "\n".join(text_parts)
+
+
 async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
     try:
         package = read_docx_parts(content)
@@ -135,13 +180,13 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
         blocks.extend(_vision_blocks(await transcribe_image(image, media_type)))
     if not blocks:
         raise AppError("empty_document", "文档中没有可供审查的文字或图片内容。", 422)
-    pages = _paginate(blocks)
+    pages, full_text = _finalize_pages(_paginate(blocks), content)
     parsed = ParsedDocument(
         name=filename,
         format="DOCX",
         pageCount=len(pages),
         pages=pages,
-        text="\n".join(block.text for block in blocks),
+        text=full_text,
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
         warnings=package.warnings,
     )
@@ -162,7 +207,7 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
     pages: list[DocumentPage] = []
     try:
         for index, pdf_page in enumerate(document):
-            blocks = _native_blocks(pdf_page.get_text("text"))
+            blocks = _native_pdf_blocks(pdf_page)
             image_refs = pdf_page.get_images(full=True)
             native_length = sum(len(block.text) for block in blocks)
             if native_length < 20:
@@ -193,7 +238,7 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
             pages.append(DocumentPage(page=index + 1, paragraphs=blocks))
     finally:
         document.close()
-    full_text = "\n".join(block.text for page in pages for block in page.paragraphs)
+    pages, full_text = _finalize_pages(pages, content)
     if not full_text:
         raise AppError("empty_document", "PDF 中没有识别到可供审查的内容。", 422)
     parsed = ParsedDocument(

@@ -84,15 +84,53 @@ def _body_blocks(document_xml: bytes) -> list[OpenXmlBlock]:
     return blocks
 
 
+def _story_blocks(part_xml: bytes, source_type: SourceType) -> list[OpenXmlBlock]:
+    root = etree.fromstring(part_xml)
+    blocks: list[OpenXmlBlock] = []
+    for paragraph in root.findall(".//w:p", NAMESPACES):
+        text = _node_text(paragraph).strip()
+        if text:
+            blocks.append(OpenXmlBlock(text=text, source_type=source_type))
+    return blocks
+
+
+def _optional_story(
+    archive: ZipFile,
+    part_name: str,
+    source_type: SourceType,
+    warnings: list[DocumentWarning],
+) -> list[OpenXmlBlock]:
+    try:
+        return _story_blocks(archive.read(part_name), source_type)
+    except (BadZipFile, EOFError, RuntimeError, zlib.error, etree.XMLSyntaxError):
+        warnings.append(DocumentWarning(
+            code="part_corrupt",
+            message="DOCX 的可选页眉或页脚已损坏，正文仍继续解析。",
+            partName=part_name,
+        ))
+        return []
+
+
 def read_docx_parts(content: bytes) -> OpenXmlDocument:
     warnings: list[DocumentWarning] = []
     images: list[OpenXmlImage] = []
 
     with ZipFile(BytesIO(content)) as archive:
         document_xml = archive.read("word/document.xml")
-        blocks = _body_blocks(document_xml)
+        names = archive.namelist()
+        header_blocks = [
+            block
+            for part_name in sorted(name for name in names if name.startswith("word/header") and name.endswith(".xml"))
+            for block in _optional_story(archive, part_name, SourceType.HEADER, warnings)
+        ]
+        footer_blocks = [
+            block
+            for part_name in sorted(name for name in names if name.startswith("word/footer") and name.endswith(".xml"))
+            for block in _optional_story(archive, part_name, SourceType.FOOTER, warnings)
+        ]
+        blocks = [*header_blocks, *_body_blocks(document_xml), *footer_blocks]
 
-        for part_name in archive.namelist():
+        for part_name in names:
             if not part_name.startswith("word/media/"):
                 continue
             suffix = PurePosixPath(part_name).suffix.lower()
@@ -116,4 +154,3 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
             images.append(OpenXmlImage(content=image, media_type=media_type, part_name=part_name))
 
     return OpenXmlDocument(blocks=blocks, images=images, warnings=warnings)
-

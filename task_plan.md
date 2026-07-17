@@ -6,12 +6,12 @@
 
 ## Current Phase
 
-Task 2 - 容错 DOCX/PDF 解析和精确锚点
+Task 3 - 问答重建与模板说明隔离
 
 ## Execution Plan
 
 - [x] Task 1: 隔离基线与损坏媒体模板回归
-- [ ] Task 2: 容错 DOCX/PDF 解析和精确锚点
+- [x] Task 2: 容错 DOCX/PDF 解析和精确锚点
 - [ ] Task 3: 问答重建与模板说明隔离
 - [ ] Task 4: 版本化模板规则与确定性引擎
 - [ ] Task 5: Qwen 证据事实抽取与定向复核
@@ -36,6 +36,8 @@ Task 2 - 容错 DOCX/PDF 解析和精确锚点
 |-------|---------|------------|
 | Actual-template regression used an arbitrary character threshold | 1 | Assert exact structural coverage and key content instead |
 | Question oracle omitted one same-paragraph question | 2 | Corrected structural count to 33 markers |
+| Header/footer preservation changed the actual-template total from 144 to 145 blocks | 3 | Count the 144 body/table blocks separately from the retained footer |
+| Scanned-PDF API regression expected the pre-anchor paragraph schema | 4 | Assert the stable ID/range/bbox fields explicitly |
 
 ## References
 
