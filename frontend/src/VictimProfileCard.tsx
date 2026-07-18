@@ -12,11 +12,16 @@ export const profileFields: Array<{
   { key: "name", label: "姓名" },
   { key: "gender", label: "性别" },
   { key: "age", label: "年龄", format: (value) => `${value}岁` },
+  { key: "birthDate", label: "出生日期" },
   { key: "ethnicity", label: "民族" },
   { key: "idNumber", label: "身份证号" },
   { key: "contact", label: "联系方式" },
+  { key: "occupation", label: "职业" },
+  { key: "education", label: "文化程度" },
+  { key: "isNpcRepresentative", label: "是否人大代表", format: (value) => value ? "是" : "否" },
   { key: "employer", label: "工作单位" },
   { key: "address", label: "住址" },
+  { key: "registeredAddress", label: "户籍所在地" },
 ];
 
 export function VictimProfileCard({ profile }: { profile: VictimProfile }) {
@@ -83,7 +88,7 @@ export function VictimProfileCard({ profile }: { profile: VictimProfile }) {
           {profileFields.map(({ key, label, format }) => {
             const value = profile[key];
             return (
-              <div className={key === "employer" || key === "address" ? "profile-field wide" : "profile-field"} key={key}>
+              <div className={key === "employer" || key === "address" || key === "registeredAddress" ? "profile-field wide" : "profile-field"} key={key}>
                 <dt>{label}</dt>
                 <dd>{value === null ? "未提取" : format ? format(value) : value}</dd>
               </div>

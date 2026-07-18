@@ -70,11 +70,16 @@ export interface VictimProfile {
   name: string | null;
   gender: string | null;
   age: number | null;
+  birthDate: string | null;
   ethnicity: string | null;
   idNumber: string | null;
+  occupation: string | null;
+  education: string | null;
   employer: string | null;
   address: string | null;
+  registeredAddress: string | null;
   contact: string | null;
+  isNpcRepresentative: boolean | null;
 }
 
 /** 证据定位 — 页号+段号，均从 1 开始。 */
