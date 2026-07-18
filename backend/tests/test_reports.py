@@ -92,7 +92,7 @@ def test_generate_endpoint_produces_hashed_report_bundle(tmp_path, monkeypatch):
     assert manifest["taskId"] == task_id
     assert manifest["documentVersionId"] == task["documentVersionId"]
     assert manifest["versions"]["rule"]
-    assert manifest["versions"]["model"]
+    assert manifest["versions"]["model"] == "mock-review-v1"
     assert manifest["versions"]["parser"]
     manifest_entries = {item["type"]: item for item in manifest["artifacts"]}
     for kind in {"original", "review_pdf", "follow_up_docx", "structured_json"}:
