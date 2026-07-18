@@ -168,6 +168,20 @@ def test_prompt_excludes_parenthetical_template_guidance():
     assert "不要当作案件事实" not in prompt
 
 
+def test_all_domain_prompts_explain_checkbox_markers_without_choice_inference():
+    document = _document("你选择哪些渠道？", "[选中] 电话 [未选] 短信 [状态不明] APP")
+
+    for domain in extraction_mod.DOMAIN_ORDER:
+        prompt = extraction_mod.build_domain_prompt(document, domain)
+
+        assert "[选中]" in prompt
+        assert "[未选]" in prompt
+        assert "不得作为肯定的案件事实" in prompt
+        assert "[状态不明]" in prompt
+        assert "不得自行判断" in prompt
+        assert "不代表解析程序已经判断单选或多选" in prompt
+
+
 def test_prompt_requires_entity_ids_to_be_unique_across_the_domain():
     prompt = extraction_mod.build_domain_prompt(_document(), "offline_delivery")
 
