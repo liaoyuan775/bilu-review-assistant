@@ -225,7 +225,7 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         )
         task.timings.parseMs = round((perf_counter() - parse_started) * 1000)
         log_event(logging.INFO, "review.parse_complete", duration_ms=task.timings.parseMs, pages=task.document.pageCount, chars=len(task.document.text))
-        task.victimProfile = extract_victim_profile(task.document.text)
+        task.victimProfile = extract_victim_profile(task.document)
         extracted_fields = (
             [key for key, value in task.victimProfile.model_dump().items() if value is not None]
             if task.victimProfile
@@ -354,7 +354,7 @@ async def process_demo(task_id: str, demo_id: str) -> None:
             parsed_payload=task.document.model_dump(mode="json"),
         )
         task.timings.parseMs = round((perf_counter() - parse_started) * 1000)
-        task.victimProfile = extract_victim_profile(task.document.text)
+        task.victimProfile = extract_victim_profile(task.document)
         task.status = TaskStatus.CHECKING
         save_task(task)
         model_started = perf_counter()

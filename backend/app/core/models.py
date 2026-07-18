@@ -252,11 +252,16 @@ class VictimProfile(BaseModel):
     name: str | None = None
     gender: str | None = None
     age: int | None = Field(default=None, ge=0, le=150)
+    birthDate: str | None = None
     ethnicity: str | None = None
     idNumber: str | None = None
+    occupation: str | None = None
+    education: str | None = None
     employer: str | None = None
     address: str | None = None
+    registeredAddress: str | None = None
     contact: str | None = None
+    isNpcRepresentative: bool | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
