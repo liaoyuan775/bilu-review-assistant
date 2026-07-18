@@ -18,7 +18,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 from app.config import QWEN_MODEL
 from app.data import TEMPLATE_RULE_CATALOG
 from app.errors import AppError
-from app.models import ArtifactSummary, ReviewStatus, ReviewTask, TaskStatus, now_iso
+from app.models import ArtifactSummary, ReviewMode, ReviewStatus, ReviewTask, TaskStatus, now_iso
 from app.services.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_generated
 from app.services.docx_report import build_follow_up_docx
 from app.services.parser import PARSER_VERSION
@@ -41,6 +41,10 @@ _STATUS_LABELS = {
     "not_applicable": "不适用",
     "needs_manual_review": "待人工判断",
 }
+
+
+def _model_version(task: ReviewTask) -> str:
+    return "mock-review-v1" if task.mode == ReviewMode.MOCK else QWEN_MODEL
 
 
 def _json_value(value, default):
@@ -92,7 +96,7 @@ def build_structured_report(task: ReviewTask, snapshot: dict) -> dict:
         "victimProfile": task.victimProfile.model_dump(mode="json") if task.victimProfile else None,
         "versions": {
             "rule": TEMPLATE_RULE_CATALOG.version,
-            "model": QWEN_MODEL,
+            "model": _model_version(task),
             "parser": PARSER_VERSION,
         },
         "counts": {status: counts.get(status, 0) for status in _STATUS_LABELS},
@@ -158,7 +162,7 @@ def build_review_pdf(task: ReviewTask, payload: dict) -> bytes:
     metadata = [
         ["文件名称", task.document.name if task.document else "未命名笔录", "任务编号", task.id],
         ["文档版本", task.documentVersionId or "-", "审查模式", mode_label(task.mode)],
-        ["规则版本", TEMPLATE_RULE_CATALOG.version, "模型", QWEN_MODEL],
+        ["规则版本", TEMPLATE_RULE_CATALOG.version, "模型", _model_version(task)],
     ]
     meta_table = Table(metadata, colWidths=[22 * mm, 60 * mm, 22 * mm, 58 * mm])
     meta_table.setStyle(TableStyle([
@@ -228,7 +232,7 @@ def _save_record(task: ReviewTask, artifact_type: str, filename: str, content: b
         size_bytes=artifact.sizeBytes,
         metadata={
             "ruleVersion": TEMPLATE_RULE_CATALOG.version,
-            "model": QWEN_MODEL,
+            "model": _model_version(task),
             "parserVersion": PARSER_VERSION,
         },
     )
@@ -263,7 +267,7 @@ def generate_review_artifacts(task_id: str) -> ReviewTask:
         "taskId": task.id,
         "documentVersionId": task.documentVersionId,
         "generatedAt": now_iso(),
-        "versions": {"rule": TEMPLATE_RULE_CATALOG.version, "model": QWEN_MODEL, "parser": PARSER_VERSION},
+        "versions": {"rule": TEMPLATE_RULE_CATALOG.version, "model": _model_version(task), "parser": PARSER_VERSION},
         "artifacts": [{
             "type": item.type,
             "filename": item.filename,

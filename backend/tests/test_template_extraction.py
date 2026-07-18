@@ -220,6 +220,9 @@ def test_money_domain_prompts_separate_online_transfers_from_offline_delivery():
 
 def test_domain_request_maps_anchor_aliases_back_to_paragraph_ids(monkeypatch):
     document = _document()
+    monkeypatch.setattr(template_extraction, "QWEN_BASE_URL", "http://model.test/v1")
+    monkeypatch.setattr(template_extraction, "QWEN_API_KEY", "test-key")
+    monkeypatch.setattr(template_extraction, "QWEN_MODEL", "test-model")
     request = AsyncMock(return_value={
         "facts": {
             "case.report_reason": {
