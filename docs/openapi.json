@@ -8,6 +8,7 @@
     "/api/v1/health": {
       "get": {
         "summary": "Health",
+        "description": "健康检查端点 — 返回服务状态、Qwen 连接状态与规则数量。",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -26,6 +27,7 @@
     "/api/v1/rules": {
       "get": {
         "summary": "List Rules",
+        "description": "返回内部询问笔录模板派生的版本化规则目录。",
         "operationId": "list_rules_api_v1_rules_get",
         "responses": {
           "200": {
@@ -44,6 +46,7 @@
     "/api/v1/demos": {
       "get": {
         "summary": "List Demos",
+        "description": "返回脱敏演示样例列表。",
         "operationId": "list_demos_api_v1_demos_get",
         "responses": {
           "200": {
@@ -60,8 +63,26 @@
       }
     },
     "/api/v1/reviews": {
+      "get": {
+        "summary": "List Reviews",
+        "description": "返回审查历史列表（包括未完成的审查）。",
+        "operationId": "list_reviews_api_v1_reviews_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "summary": "Create Upload Review",
+        "description": "上传文件并发起异步审查任务。\n\n在后台任务中执行：解析 → OCR → 模型审查 → 证据校验。\n前端通过轮询 GET /api/v1/reviews/{task_id} 获取进度。",
         "operationId": "create_upload_review_api_v1_reviews_post",
         "requestBody": {
           "content": {
@@ -100,6 +121,7 @@
     "/api/v1/reviews/demos/{demo_id}": {
       "post": {
         "summary": "Create Demo Review",
+        "description": "按服务端案例目录指定的执行模式发起演示审查。",
         "operationId": "create_demo_review_api_v1_reviews_demos__demo_id__post",
         "parameters": [
           {
@@ -112,18 +134,6 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "additionalProperties": true,
-                "title": "Payload"
-              }
-            }
-          }
-        },
         "responses": {
           "202": {
             "description": "Successful Response",
@@ -151,6 +161,7 @@
     "/api/v1/reviews/{task_id}": {
       "get": {
         "summary": "Review Detail",
+        "description": "获取单条审查任务的完整详情（用于前端轮询进度与结果）。",
         "operationId": "review_detail_api_v1_reviews__task_id__get",
         "parameters": [
           {
@@ -187,9 +198,514 @@
         }
       }
     },
+    "/api/v1/reviews/{task_id}/versions": {
+      "get": {
+        "summary": "List Review Versions",
+        "operationId": "list_review_versions_api_v1_reviews__task_id__versions_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/issues/{rule_id}/actions": {
+      "post": {
+        "summary": "Save Issue Action",
+        "operationId": "save_issue_action_api_v1_reviews__task_id__issues__rule_id__actions_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/issues/{rule_id}/follow-up-answer": {
+      "post": {
+        "summary": "Save Follow Up Answer",
+        "operationId": "save_follow_up_answer_api_v1_reviews__task_id__issues__rule_id__follow_up_answer_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FollowUpAnswerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/domains/{domain}/retry": {
+      "post": {
+        "summary": "Retry Review Domain",
+        "operationId": "retry_review_domain_api_v1_reviews__task_id__domains__domain__retry_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Domain"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryDomainRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/warnings/acknowledge": {
+      "post": {
+        "summary": "Acknowledge Review Warnings",
+        "operationId": "acknowledge_review_warnings_api_v1_reviews__task_id__warnings_acknowledge_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarningAcknowledgementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/artifacts/generate": {
+      "post": {
+        "summary": "Generate Artifacts",
+        "operationId": "generate_artifacts_api_v1_reviews__task_id__artifacts_generate_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/artifacts/{artifact_id}": {
+      "get": {
+        "summary": "Download Review Artifact",
+        "operationId": "download_review_artifact_api_v1_reviews__task_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/complete": {
+      "post": {
+        "summary": "Archive Review",
+        "description": "完成复核 — 将审查任务置为已归档状态（只读）。",
+        "operationId": "archive_review_api_v1_reviews__task_id__complete_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/archive": {
+      "post": {
+        "summary": "Archive Review V2",
+        "operationId": "archive_review_v2_api_v1_reviews__task_id__archive_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/follow-ups": {
+      "get": {
+        "summary": "Review Follow Ups",
+        "description": "返回被标记为\"补问清单\"的规则项列表。",
+        "operationId": "review_follow_ups_api_v1_reviews__task_id__follow_ups_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FollowUpListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reviews/{task_id}/report-data": {
+      "get": {
+        "summary": "Review Report Data",
+        "description": "返回审查报告所需的全部数据（打印/导出用）。",
+        "operationId": "review_report_data_api_v1_reviews__task_id__report_data_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportData"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reviews/{task_id}/results/{rule_id}/decision": {
       "patch": {
         "summary": "Save Decision",
+        "description": "人工分流决策 — 对某条规则结果标记确认/补问/忽略。",
         "operationId": "save_decision_api_v1_reviews__task_id__results__rule_id__decision_patch",
         "parameters": [
           {
@@ -248,6 +764,40 @@
   },
   "components": {
     "schemas": {
+      "ArtifactSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sizebytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "filename",
+          "sha256",
+          "sizeBytes"
+        ],
+        "title": "ArtifactSummary"
+      },
       "Body_create_upload_review_api_v1_reviews_post": {
         "properties": {
           "file": {
@@ -261,6 +811,23 @@
           "file"
         ],
         "title": "Body_create_upload_review_api_v1_reviews_post"
+      },
+      "CompleteReviewResponse": {
+        "properties": {
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "archivedAt": {
+            "type": "string",
+            "title": "Archivedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reviewStatus",
+          "archivedAt"
+        ],
+        "title": "CompleteReviewResponse"
       },
       "CreateTaskResponse": {
         "properties": {
@@ -277,7 +844,8 @@
           "taskId",
           "status"
         ],
-        "title": "CreateTaskResponse"
+        "title": "CreateTaskResponse",
+        "description": "创建审查任务的即时响应（异步处理，需轮询最终结果）。"
       },
       "DecisionRequest": {
         "properties": {
@@ -341,6 +909,14 @@
           "intent": {
             "type": "string",
             "title": "Intent"
+          },
+          "executionMode": {
+            "type": "string",
+            "enum": [
+              "mock",
+              "qwen"
+            ],
+            "title": "Executionmode"
           }
         },
         "type": "object",
@@ -348,9 +924,11 @@
           "id",
           "name",
           "pageCount",
-          "intent"
+          "intent",
+          "executionMode"
         ],
-        "title": "DemoSummary"
+        "title": "DemoSummary",
+        "description": "演示样例的对外摘要。"
       },
       "DocumentPage": {
         "properties": {
@@ -371,10 +949,16 @@
           "page",
           "paragraphs"
         ],
-        "title": "DocumentPage"
+        "title": "DocumentPage",
+        "description": "文档中的一页，包含段落列表。"
       },
       "DocumentParagraph": {
         "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "default": ""
+          },
           "text": {
             "type": "string",
             "title": "Text"
@@ -394,6 +978,34 @@
               }
             ],
             "title": "Confidence"
+          },
+          "charStart": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Charstart",
+            "default": 0
+          },
+          "charEnd": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Charend",
+            "default": 0
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array",
+                "maxItems": 4,
+                "minItems": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
           }
         },
         "type": "object",
@@ -401,7 +1013,38 @@
           "text",
           "sourceType"
         ],
-        "title": "DocumentParagraph"
+        "title": "DocumentParagraph",
+        "description": "文档中的单个段落。\n\nAttributes:\n    text:       段落原文。\n    sourceType: 来源类型，决定如何渲染（文本/表格/图像识别）。\n    confidence: 图像识别的置信度（0-1），仅 VISION 类型有效。"
+      },
+      "DocumentWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "partName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partname"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DocumentWarning",
+        "description": "Recoverable document issue that must remain visible to reviewers."
       },
       "EvidenceLocation": {
         "properties": {
@@ -419,7 +1062,47 @@
           "page",
           "paragraph"
         ],
-        "title": "EvidenceLocation"
+        "title": "EvidenceLocation",
+        "description": "证据在笔录中的位置（页号 + 段号，均从 1 开始计数）。"
+      },
+      "FollowUpAnswerRequest": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "actorId": {
+            "type": "string",
+            "title": "Actorid",
+            "default": "local-operator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "FollowUpAnswerRequest"
+      },
+      "FollowUpListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewResult"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "FollowUpListResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -456,6 +1139,28 @@
         ],
         "title": "HealthResponse"
       },
+      "IssueActionRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ManualStatus"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "actorId": {
+            "type": "string",
+            "title": "Actorid",
+            "default": "local-operator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "IssueActionRequest"
+      },
       "ManualDecision": {
         "properties": {
           "status": {
@@ -469,7 +1174,8 @@
           }
         },
         "type": "object",
-        "title": "ManualDecision"
+        "title": "ManualDecision",
+        "description": "办案人员对单条规则结果的人工处置记录。"
       },
       "ManualStatus": {
         "type": "string",
@@ -477,9 +1183,12 @@
           "pending",
           "confirmed",
           "supplemented",
-          "ignored"
+          "ignored",
+          "resolved",
+          "not_applicable"
         ],
-        "title": "ManualStatus"
+        "title": "ManualStatus",
+        "description": "人工分流 — 办案人员对模型结果的最终处置状态。"
       },
       "ParsedDocument": {
         "properties": {
@@ -518,6 +1227,20 @@
           "sizeLabel": {
             "type": "string",
             "title": "Sizelabel"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "questionAnswers": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionAnswerBlock"
+            },
+            "type": "array",
+            "title": "Questionanswers"
           }
         },
         "type": "object",
@@ -529,7 +1252,56 @@
           "text",
           "sizeLabel"
         ],
-        "title": "ParsedDocument"
+        "title": "ParsedDocument",
+        "description": "标准化后的文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。"
+      },
+      "QuestionAnswerBlock": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          },
+          "guidance": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Guidance"
+          },
+          "anchorIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Anchorids"
+          },
+          "answerClarity": {
+            "type": "string",
+            "enum": [
+              "clear",
+              "blank",
+              "unclear"
+            ],
+            "title": "Answerclarity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "answer",
+          "answerClarity"
+        ],
+        "title": "QuestionAnswerBlock",
+        "description": "A reconstructed interview exchange with source and template guidance kept separate."
       },
       "QwenHealth": {
         "properties": {
@@ -559,15 +1331,114 @@
           "reachable",
           "model"
         ],
-        "title": "QwenHealth"
+        "title": "QwenHealth",
+        "description": "Qwen 模型连接状态快照。"
+      },
+      "ReportData": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "victimProfile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VictimProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ReviewMode"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "document",
+          "victimProfile",
+          "mode",
+          "createdAt",
+          "archivedAt",
+          "reviewStatus",
+          "results"
+        ],
+        "title": "ReportData",
+        "description": "审查报告的全部数据 — 用于打印/导出。"
+      },
+      "RetryDomainRequest": {
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "title": "Actorid",
+            "default": "local-operator"
+          }
+        },
+        "type": "object",
+        "title": "RetryDomainRequest"
+      },
+      "ReviewListResponse": {
+        "properties": {
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewSummary"
+            },
+            "type": "array",
+            "title": "Reviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reviews"
+        ],
+        "title": "ReviewListResponse"
       },
       "ReviewMode": {
         "type": "string",
         "enum": [
           "qwen",
+          "mock",
           "local"
         ],
-        "title": "ReviewMode"
+        "title": "ReviewMode",
+        "description": "审查结果的执行来源。"
       },
       "ReviewResult": {
         "properties": {
@@ -611,6 +1482,20 @@
               }
             ]
           },
+          "evidenceLocations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLocation"
+            },
+            "type": "array",
+            "title": "Evidencelocations"
+          },
+          "evidenceAnchorIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidenceanchorids"
+          },
           "reason": {
             "type": "string",
             "title": "Reason"
@@ -632,6 +1517,16 @@
           "source": {
             "type": "string",
             "title": "Source"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Severity",
+            "default": "medium"
           }
         },
         "type": "object",
@@ -648,13 +1543,67 @@
           "suggestedQuestion",
           "source"
         ],
-        "title": "ReviewResult"
+        "title": "ReviewResult",
+        "description": "经过确定性校验后的最终规则审查结果（含人工分流状态）。"
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "in_review",
+          "archived"
+        ],
+        "title": "ReviewStatus",
+        "description": "审查复核状态 — 控制 UI 是否允许修改操作。"
+      },
+      "ReviewSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "documentName": {
+            "type": "string",
+            "title": "Documentname"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "title": "Pendingcount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "documentName",
+          "createdAt",
+          "updatedAt",
+          "reviewStatus",
+          "pendingCount"
+        ],
+        "title": "ReviewSummary",
+        "description": "审查历史列表中的单条摘要。"
       },
       "ReviewTask": {
         "properties": {
           "id": {
             "type": "string",
             "title": "Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
           },
           "mode": {
             "$ref": "#/components/schemas/ReviewMode"
@@ -673,12 +1622,113 @@
               }
             ]
           },
+          "documentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documentid"
+          },
+          "documentVersionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documentversionid"
+          },
+          "reviewRunId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewrunid"
+          },
+          "extractionPayload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractionpayload"
+          },
+          "victimProfile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VictimProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/ReviewResult"
             },
             "type": "array",
             "title": "Results"
+          },
+          "failedDomains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Faileddomains"
+          },
+          "acknowledgedWarnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Acknowledgedwarnings"
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactSummary"
+            },
+            "type": "array",
+            "title": "Artifacts"
+          },
+          "requiredArtifacts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requiredartifacts"
+          },
+          "timings": {
+            "$ref": "#/components/schemas/ReviewTimings"
+          },
+          "reviewStatus": {
+            "$ref": "#/components/schemas/ReviewStatus",
+            "default": "in_review"
+          },
+          "archivedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archivedat"
           },
           "createdAt": {
             "type": "string",
@@ -715,7 +1765,55 @@
         "required": [
           "mode"
         ],
-        "title": "ReviewTask"
+        "title": "ReviewTask",
+        "description": "审查任务 — 系统的核心聚合根，包含一份笔录的全部审查状态。"
+      },
+      "ReviewTimings": {
+        "properties": {
+          "parseMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsems"
+          },
+          "modelReviewMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelreviewms"
+          },
+          "modelGroupsMs": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Modelgroupsms"
+          },
+          "totalMs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totalms"
+          }
+        },
+        "type": "object",
+        "title": "ReviewTimings",
+        "description": "审查任务各阶段的耗时统计（毫秒）。"
       },
       "RuleListResponse": {
         "properties": {
@@ -739,9 +1837,12 @@
           "covered",
           "missing",
           "incomplete",
-          "not_applicable"
+          "inconsistent",
+          "not_applicable",
+          "needs_manual_review"
         ],
-        "title": "RuleStatus"
+        "title": "RuleStatus",
+        "description": "单条规则的审查结论状态。"
       },
       "RuleSummary": {
         "properties": {
@@ -787,16 +1888,20 @@
           "requiredFacts",
           "source"
         ],
-        "title": "RuleSummary"
+        "title": "RuleSummary",
+        "description": "对前端暴露的规则摘要（省略 triggers、requiredFacts 详情等内部字段）。"
       },
       "SourceType": {
         "type": "string",
         "enum": [
           "native_text",
           "table",
-          "vision"
+          "vision",
+          "header",
+          "footer"
         ],
-        "title": "SourceType"
+        "title": "SourceType",
+        "description": "段落内容来源类型 — 决定该段文本的可信度与展示方式。"
       },
       "TaskStatus": {
         "type": "string",
@@ -809,7 +1914,8 @@
           "completed",
           "failed"
         ],
-        "title": "TaskStatus"
+        "title": "TaskStatus",
+        "description": "审查任务状态机 — 按执行顺序严格流转。"
       },
       "ValidationError": {
         "properties": {
@@ -843,6 +1949,124 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VictimProfile": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "age": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 150.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age"
+          },
+          "ethnicity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ethnicity"
+          },
+          "idNumber": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idnumber"
+          },
+          "employer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Employer"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact"
+          }
+        },
+        "type": "object",
+        "title": "VictimProfile",
+        "description": "从笔录中提取的被害人基础信息，全部字段可为空（提取失败时）。"
+      },
+      "WarningAcknowledgementRequest": {
+        "properties": {
+          "codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Codes"
+          },
+          "actorId": {
+            "type": "string",
+            "title": "Actorid",
+            "default": "local-operator"
+          }
+        },
+        "type": "object",
+        "required": [
+          "codes"
+        ],
+        "title": "WarningAcknowledgementRequest"
       }
     }
   }

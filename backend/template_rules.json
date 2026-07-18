@@ -1,0 +1,235 @@
+{
+  "version": "1.0.0",
+  "source": {
+    "document": "询问笔录模版(1).docx",
+    "sha256": "c37c38663c282a8acd6f4ca2e10e609c517f64c33895c73843a0b4f6dbdee329",
+    "paragraphCount": 144,
+    "questionCount": 33
+  },
+  "rules": [
+    {
+      "ruleId": "META-001", "name": "笔录头与签名结构完整", "group": "META",
+      "sourceParagraphs": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 144],
+      "sourceMarker": "record-structure-001", "sourceKind": "structural", "scope": "structural",
+      "requiredFields": ["record.started_at", "record.location", "record.interviewers", "record.respondent", "record.signatures"],
+      "suggestedQuestion": "请补齐询问时间、地点、询问人员、被询问人和签名核对信息。", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-001", "name": "如实作答义务告知与确认", "group": "PROC",
+      "sourceParagraphs": [13], "sourceMarker": "p013-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.truth_notice_confirmed"],
+      "suggestedQuestion": "你是否听清楚如实回答和协助调查的义务？", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-002", "name": "被害人权利义务告知", "group": "PROC",
+      "sourceParagraphs": [14], "sourceMarker": "p014-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.rights_notice_read", "procedure.rights_request"],
+      "suggestedQuestion": "你是否看过被害人诉讼权利义务告知书，有无要求？", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-003", "name": "回避申请确认", "group": "PROC",
+      "sourceParagraphs": [16], "sourceMarker": "p016-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.recusal_requested"],
+      "suggestedQuestion": "你是否需要申请办案民警回避？", "severity": "high"
+    },
+    {
+      "ruleId": "META-002", "name": "被询问人基本情况", "group": "META",
+      "sourceParagraphs": [18], "sourceMarker": "p018-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["victim.name", "victim.gender", "victim.age", "victim.occupation", "victim.id_number", "victim.phone", "victim.education", "victim.employer"],
+      "suggestedQuestion": "请逐项说明姓名、性别、年龄、职业、身份证号、联系电话、学历和工作单位。", "severity": "high"
+    },
+    {
+      "ruleId": "CASE-001", "name": "报案原因与案件概述", "group": "CASE",
+      "sourceParagraphs": [20], "sourceMarker": "p020-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["case.report_reason", "case.fraud_method", "case.location", "case.initial_channel", "case.contact_method", "case.total_loss"],
+      "suggestedQuestion": "请概述报案原因、诈骗手法、案发地、引流和联络方式及被骗总金额。", "severity": "high"
+    },
+    {
+      "ruleId": "PREV-001", "name": "反诈宣传接收情况", "group": "PREV",
+      "sourceParagraphs": [24], "sourceMarker": "p024-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["prevention.received_publicity"],
+      "suggestedQuestion": "你以前是否接收过反诈宣传，具体通过什么渠道？", "severity": "medium"
+    },
+    {
+      "ruleId": "PREV-002", "name": "社区民警反诈宣传情况", "group": "PREV",
+      "sourceParagraphs": [26], "sourceMarker": "p026-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["prevention.community_police_publicity"],
+      "suggestedQuestion": "你在社区是否接受过社区民警的反诈宣传？", "severity": "medium"
+    },
+    {
+      "ruleId": "PREV-003", "name": "国家反诈中心应用安装情况", "group": "PREV",
+      "sourceParagraphs": [28], "sourceMarker": "p028-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["prevention.anti_fraud_app_installed"],
+      "suggestedQuestion": "你是否下载并使用过国家反诈中心APP？", "severity": "medium"
+    },
+    {
+      "ruleId": "CASE-002", "name": "诈骗经过完整叙述", "group": "CASE",
+      "sourceParagraphs": [30], "sourceMarker": "p030-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["case.timeline", "case.initial_contact", "case.channel_changes", "case.fraud_tools", "case.payment_reason", "case.payment_summary", "case.rebate_summary"],
+      "suggestedQuestion": "请按时间顺序详细说明接触、联络切换、诈骗工具、转款和返款经过。", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-004", "name": "重要信息再次确认", "group": "PROC",
+      "sourceParagraphs": [32], "sourceMarker": "p032-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.key_information_reconfirmed"],
+      "suggestedQuestion": "以下重要信息需要再次确认，你是否理解并愿意继续核对？", "severity": "medium"
+    },
+    {
+      "ruleId": "RISK-001", "name": "多次转账风险提示", "group": "RISK",
+      "sourceParagraphs": [34], "sourceMarker": "p034-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "online_money.transfer_count", "operator": "gt", "value": 1},
+      "requiredFields": ["risk.payment_warning_received", "risk.payment_warning_channel", "risk.payment_warning_content"],
+      "suggestedQuestion": "多次转账时是否收到银行或支付机构的电话、短信风险提示，内容是什么？", "severity": "high"
+    },
+    {
+      "ruleId": "RISK-002", "name": "发现被骗后的账户挂失", "group": "RISK",
+      "sourceParagraphs": [36], "sourceMarker": "p036-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["risk.account_loss_reported", "risk.loss_report_time", "risk.post_report_transfers"],
+      "suggestedQuestion": "发现被骗后是否挂失支付账户，何时申请，申请后是否仍有转账？", "severity": "high"
+    },
+    {
+      "ruleId": "RISK-003", "name": "电话卡实名与风险提示", "group": "RISK",
+      "sourceParagraphs": [38], "sourceMarker": "p038-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "contact.phone_used", "operator": "equals", "value": true},
+      "requiredFields": ["risk.phone_card_real_name", "risk.phone_warning_received"],
+      "suggestedQuestion": "使用的电话卡或物联网卡是否实名，联系嫌疑人时是否收到风险提示？", "severity": "medium"
+    },
+    {
+      "ruleId": "RISK-004", "name": "聊天软件实名情况", "group": "RISK",
+      "sourceParagraphs": [40], "sourceMarker": "p040-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "contact.chat_used", "operator": "equals", "value": true},
+      "requiredFields": ["risk.victim_chat_real_name", "risk.suspect_chat_real_name"],
+      "suggestedQuestion": "双方使用的聊天软件账号是否完成实名登记？", "severity": "medium"
+    },
+    {
+      "ruleId": "EVID-001", "name": "语音通话录音留存", "group": "EVID",
+      "sourceParagraphs": [42], "sourceMarker": "p042-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "contact.voice_call", "operator": "equals", "value": true},
+      "requiredFields": ["evidence.voice_recording_exists", "evidence.voice_recording_available"],
+      "suggestedQuestion": "与嫌疑人语音通话时是否录音，录音是否仍可提供？", "severity": "medium"
+    },
+    {
+      "ruleId": "CASH-001", "name": "嫌疑人预约拿款信息", "group": "CASH",
+      "sourceParagraphs": [44], "sourceMarker": "p044-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "offline.used", "operator": "equals", "value": true},
+      "requiredFields": ["offline.suspect_appointment", "offline.appointment_time", "offline.appointment_location", "offline.appointment_amount"],
+      "suggestedQuestion": "对方是否预约拿款，约定的时间、地点和金额分别是什么？", "severity": "high"
+    },
+    {
+      "ruleId": "CASH-002", "name": "取款预约与银行风险提示", "group": "CASH",
+      "sourceParagraphs": [46], "sourceMarker": "p046-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "offline.used", "operator": "equals", "value": true},
+      "requiredFields": ["cash.bank_appointment", "cash.bank_warning_received", "cash.bank_warning_channel"],
+      "suggestedQuestion": "取款前是否预约银行，银行是否通过电话或短信进行风险提示？", "severity": "high"
+    },
+    {
+      "ruleId": "CASH-003", "name": "逐次取款银行明细", "group": "CASH",
+      "sourceParagraphs": [48], "sourceMarker": "p048-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "offline.used", "operator": "equals", "value": true},
+      "requiredFields": ["cash.withdrawal_count"],
+      "repeatEntity": {"entityType": "withdrawals", "countPath": "cash.withdrawal_count", "requiredFields": ["bank", "branch", "address", "time", "amount"]},
+      "consistencyChecks": [{"type": "count_matches", "entityType": "withdrawals", "countPath": "cash.withdrawal_count"}],
+      "suggestedQuestion": "请逐次说明取款银行、网点、地址、具体时间和金额。", "severity": "high"
+    },
+    {
+      "ruleId": "TIME-001", "name": "案发时间与详细地址", "group": "TIME",
+      "sourceParagraphs": [50], "sourceMarker": "p050-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["timeline.incident_at", "timeline.incident_district", "timeline.incident_street", "timeline.incident_community"],
+      "suggestedQuestion": "请明确案发时间和具体到县市区、乡镇街道、社区的地址。", "severity": "high"
+    },
+    {
+      "ruleId": "TIME-002", "name": "最早联系时间", "group": "TIME",
+      "sourceParagraphs": [53], "sourceMarker": "p053-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["timeline.first_contact_at", "timeline.incident_at"],
+      "consistencyChecks": [{"type": "chronology", "earlierPath": "timeline.first_contact_at", "laterPath": "timeline.incident_at"}],
+      "suggestedQuestion": "你最早何时开始与嫌疑人联系，请精确到日期和时间？", "severity": "high"
+    },
+    {
+      "ruleId": "PRIV-001", "name": "案发前个人信息泄露", "group": "PRIV",
+      "sourceParagraphs": [55], "sourceMarker": "p055-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["privacy.disclosure_occurred", "privacy.disclosure_time", "privacy.disclosure_reason", "privacy.disclosed_information"],
+      "suggestedQuestion": "联系嫌疑人前是否填写或透露个人信息，何时、因何事、具体有哪些信息？", "severity": "medium"
+    },
+    {
+      "ruleId": "LEAD-001", "name": "首次接触引流方式", "group": "LEAD",
+      "sourceParagraphs": [57], "sourceMarker": "p057-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["contact.initial_channel", "contact.initial_account", "contact.initial_content"],
+      "suggestedQuestion": "对方首次通过什么方式、什么账号与你接触，发布或发送了什么内容？", "severity": "high"
+    },
+    {
+      "ruleId": "MOTIVE-001", "name": "持续联系主观原因", "group": "MOTIVE",
+      "sourceParagraphs": [87], "sourceMarker": "p087-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["motive.continued_contact_reason"],
+      "suggestedQuestion": "促使你持续与对方联系并继续操作的原因是什么？", "severity": "medium"
+    },
+    {
+      "ruleId": "CONTACT-001", "name": "后续联系人与渠道切换明细", "group": "CONTACT",
+      "sourceParagraphs": [89], "sourceMarker": "p089-q1", "sourceKind": "question", "scope": "repeated",
+      "requiredFields": ["contact.switch_count"],
+      "repeatEntity": {"entityType": "contact_switches", "countPath": "contact.switch_count", "requiredFields": ["time", "channel", "account", "important_information", "details"]},
+      "consistencyChecks": [{"type": "count_matches", "entityType": "contact_switches", "countPath": "contact.switch_count"}],
+      "suggestedQuestion": "请按时间、联系渠道、账号或人员、重要信息和详细内容逐条列明后续联系。", "severity": "high"
+    },
+    {
+      "ruleId": "MONEY-001", "name": "被骗总额与净损失", "group": "MONEY",
+      "sourceParagraphs": [98], "sourceMarker": "p098-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["money.gross_loss", "money.rebate_total", "money.net_loss"],
+      "consistencyChecks": [{"type": "rebate_net_loss", "leftPath": "money.gross_loss", "rightPath": "money.rebate_total", "resultPath": "money.net_loss"}],
+      "suggestedQuestion": "被骗总额、收到的返款总额和实际净损失分别是多少？", "severity": "high"
+    },
+    {
+      "ruleId": "MONEY-002", "name": "被骗资金转出控制方式", "group": "MONEY",
+      "sourceParagraphs": [100], "sourceMarker": "p100-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["money.transfer_control_method", "money.remote_control_used", "money.credentials_disclosed"],
+      "suggestedQuestion": "被骗资金由谁、通过何种方式操作转出，是否远程控制或提供卡号、验证码等信息？", "severity": "high"
+    },
+    {
+      "ruleId": "MONEY-003", "name": "转账笔数确认", "group": "MONEY",
+      "sourceParagraphs": [102], "sourceMarker": "p102-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["online_money.transfer_count"],
+      "suggestedQuestion": "你一共向对方转了几笔钱？", "severity": "high"
+    },
+    {
+      "ruleId": "MONEY-004", "name": "逐笔线上转账资金流向", "group": "MONEY",
+      "sourceParagraphs": [104], "sourceMarker": "p104-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "online_money.used", "operator": "equals", "value": true},
+      "requiredFields": ["online_money.transfer_count", "online_money.total"],
+      "repeatEntity": {"entityType": "transfers", "countPath": "online_money.transfer_count", "requiredFields": ["time", "amount", "payment_method", "payer_account", "recipient_account", "transaction_id"]},
+      "consistencyChecks": [{"type": "sum_matches", "entityType": "transfers", "entityField": "amount", "totalPath": "online_money.total"}],
+      "suggestedQuestion": "请逐笔说明转账时间、金额、支付方式、付款和收款账户及流水号。", "severity": "high"
+    },
+    {
+      "ruleId": "OFFLINE-001", "name": "线下现金或实物交付明细", "group": "OFFLINE",
+      "sourceParagraphs": [125], "sourceMarker": "p125-q1", "sourceKind": "question", "scope": "conditional",
+      "appliesWhen": {"path": "offline.used", "operator": "equals", "value": true},
+      "requiredFields": ["offline.handoff_count", "offline.property_source"],
+      "repeatEntity": {"entityType": "offline_handoffs", "countPath": "offline.handoff_count", "requiredFields": ["time", "location", "property_type", "amount_or_value", "method", "recipient_or_logistics"]},
+      "consistencyChecks": [{"type": "count_matches", "entityType": "offline_handoffs", "countPath": "offline.handoff_count"}],
+      "suggestedQuestion": "请逐次说明现金、黄金等实物来源和交付时间、地点、价值、方式及接收人员或物流。", "severity": "high"
+    },
+    {
+      "ruleId": "EXTRA-001", "name": "其他补充事实", "group": "EXTRA",
+      "sourceParagraphs": [137], "sourceMarker": "p137-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["case.additional_statement"],
+      "suggestedQuestion": "除上述情况外，是否还有需要补充的事实、人员、账号、资金或证据？", "severity": "medium"
+    },
+    {
+      "ruleId": "EVID-002", "name": "相关记录留存与提供", "group": "EVID",
+      "sourceParagraphs": [139], "sourceMarker": "p139-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["evidence.records_retained", "evidence.record_types", "evidence.can_provide"],
+      "suggestedQuestion": "聊天记录、转账流水、链接、APP等是否留存，分别能否提供？", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-005", "name": "陈述真实性确认", "group": "PROC",
+      "sourceParagraphs": [141], "sourceMarker": "p141-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.statement_confirmed_true"],
+      "suggestedQuestion": "以上所述是否真实、准确？", "severity": "high"
+    },
+    {
+      "ruleId": "PROC-006", "name": "阅笔录一致性确认", "group": "PROC",
+      "sourceParagraphs": [143], "sourceMarker": "p143-q1", "sourceKind": "question", "scope": "common",
+      "requiredFields": ["procedure.record_reviewed", "procedure.record_matches_statement"],
+      "suggestedQuestion": "以上笔录是否已给你阅读或向你宣读，与你所说是否相符？", "severity": "high"
+    }
+  ]
+}

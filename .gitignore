@@ -16,3 +16,4 @@
 .runtime/
 tmp/
 output/playwright/
+.worktrees/
