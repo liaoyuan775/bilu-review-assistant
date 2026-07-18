@@ -23,6 +23,7 @@ import { artifactDownloadUrl } from "./api";
 import { DocumentEvidencePane } from "./DocumentEvidencePane";
 import { FollowUpPanel } from "./FollowUpPanel";
 import { displayFactLabel, displayGroupLabel } from "./ruleLabels";
+import { VictimProfileCard } from "./VictimProfileCard";
 import {
   actionableStatuses,
   archiveBlockers,
@@ -171,6 +172,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
             <Icon size={17} className={meta.className} /><strong>{counts[status]}</strong><span>{meta.label}</span>
           </button>;
         })}
+        {task.victimProfile && <VictimProfileCard profile={task.victimProfile} />}
         <div className="archive-gates">
           {task.reviewStatus === "archived" ? <span className="gate-ready"><CheckCircle2 size={16} />已归档只读</span> : blockers.length === 0 ? (
             <span className="gate-ready"><CheckCircle2 size={16} />归档条件已满足</span>
