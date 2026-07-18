@@ -60,7 +60,7 @@ import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
 import { canCompleteReview, nextPendingRuleId, pendingDecisionCount } from "./reviewState";
 import { formatModelReviewDuration } from "./reviewTiming";
 import { groupRules } from "./ruleGroups";
-import { displayFactLabel, displayGroupLabel, displayRuleScope } from "./ruleLabels";
+import { displayFactLabel, displayGroupLabel, displayReviewReason, displayRuleScope } from "./ruleLabels";
 import { toggleSelectedRuleId } from "./resultSelection";
 import type { DemoSummary, ManualStatus, ReportData, ReviewResult, ReviewSummary, ReviewTask, RuleStatus, RuleSummary, TaskStatus } from "./types";
 import { profileFields, VictimProfileCard } from "./VictimProfileCard";
@@ -823,7 +823,7 @@ function ResultView(props: ResultViewProps) {
                   {isSelected && (
                     <div className="result-detail" id={`result-detail-${result.ruleId}`}>
                       <div className="detail-block"><span>判断说明</span><p>{result.reason}</p></div>
-                      {result.missingFacts.length > 0 && <div className="fact-list"><span>缺失要素</span><div>{result.missingFacts.map((fact) => <em key={fact}>{fact}</em>)}</div></div>}
+                      {result.missingFacts.length > 0 && <div className="fact-list"><span>缺失要素</span><div>{result.missingFacts.map((fact) => <em key={fact}>{displayFactLabel(fact)}</em>)}</div></div>}
                       <div className="evidence-box">
                         <div>
                           <span>原文证据</span>
@@ -953,7 +953,7 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
         <section className="report-results"><h2>逐项审查与人工分流</h2>{report.results.map((item) => (
           <article key={item.ruleId}>
             <div><code>{item.ruleId}</code><strong>{item.ruleName}</strong><span>{statusMeta[item.status].label}</span><em>{manualLabel[item.manualDecision.status]}</em></div>
-            <p><b>判断说明：</b>{item.reason}</p>
+            <p><b>判断说明：</b>{displayReviewReason(item.reason)}</p>
             <p><b>原文证据：</b>{item.evidence || "未提供证据"}{evidenceLocationsFor(item).length > 0 ? `（${evidenceLocationsFor(item).map((location) => `第 ${location.page} 页第 ${location.paragraph} 段`).join("；")}）` : ""}</p>
             {(item.suggestedQuestion || item.manualDecision.reason) && <p><b>建议补问：</b>{effectiveFollowUpQuestion(item)}</p>}
           </article>

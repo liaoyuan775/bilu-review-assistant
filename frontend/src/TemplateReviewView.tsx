@@ -22,7 +22,13 @@ import {
 import { artifactDownloadUrl } from "./api";
 import { DocumentEvidencePane } from "./DocumentEvidencePane";
 import { FollowUpPanel } from "./FollowUpPanel";
-import { displayFactLabel, displayGroupLabel } from "./ruleLabels";
+import {
+  displayDomainLabel,
+  displayEntityTypeLabel,
+  displayFactLabel,
+  displayGroupLabel,
+  displayReviewReason,
+} from "./ruleLabels";
 import { VictimProfileCard } from "./VictimProfileCard";
 import {
   actionableStatuses,
@@ -156,7 +162,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
       {(task.failedDomains.length > 0 || unresolvedWarnings.length > 0) && (
         <div className="review-alert-band">
           {task.failedDomains.map((domain) => (
-            <div key={domain}><AlertTriangle size={16} /><span>抽取失败：{domain}</span><button onClick={() => onRetryDomain(domain)}><RefreshCw size={14} />重试</button></div>
+            <div key={domain}><AlertTriangle size={16} /><span>抽取失败：{displayDomainLabel(domain)}</span><button onClick={() => onRetryDomain(domain)}><RefreshCw size={14} />重试</button></div>
           ))}
           {unresolvedWarnings.length > 0 && (
             <div><AlertTriangle size={16} /><span>{unresolvedWarnings.length} 条解析告警待确认</span><button onClick={() => onAcknowledgeWarnings(unresolvedWarnings.map((item) => item.code))}><Check size={14} />确认</button></div>
@@ -183,7 +189,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
       {entities.length > 0 && (
         <section className="entity-strip" aria-label="重复明细">
           <strong>重复明细</strong>
-          {entities.map((entity) => <span key={entity.type}>{entity.type}<b>{entity.count}</b></span>)}
+          {entities.map((entity) => <span key={entity.type}>{displayEntityTypeLabel(entity.type)}<b>{entity.count}</b></span>)}
         </section>
       )}
 
@@ -223,7 +229,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
                     </button>
                     {expanded && (
                       <div className="template-issue-detail">
-                        <p>{item.reason}</p>
+                        <p>{displayReviewReason(item.reason)}</p>
                         {item.missingFacts.length > 0 && <div className="missing-fields">{item.missingFacts.map((field) => <span key={field}>{displayFactLabel(field)}</span>)}</div>}
                         <div className="evidence-quote"><strong>证据原文</strong><p>{item.evidence}</p></div>
                         {item.suggestedQuestion && <div className="suggested-question"><strong>建议补问</strong><p>{item.suggestedQuestion}</p></div>}

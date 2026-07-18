@@ -99,6 +99,9 @@ const FACT_LABELS: Record<string, string> = {
   "contact.initial_account": "首次联系账号",
   "contact.initial_content": "首次联系内容",
   "contact.switch_count": "后续渠道切换次数",
+  "contact.chat_used": "是否使用聊天软件",
+  "contact.phone_used": "是否通过电话联系",
+  "contact.voice_call": "是否进行语音通话",
   "motive.continued_contact_reason": "持续联系原因",
   "money.gross_loss": "被骗总额",
   "money.rebate_total": "返利总额",
@@ -108,8 +111,83 @@ const FACT_LABELS: Record<string, string> = {
   "money.credentials_disclosed": "是否泄露支付凭证",
   "online_money.transfer_count": "线上转账笔数",
   "online_money.total": "线上转账总额",
+  "online_money.used": "是否发生线上资金转移",
+  "offline.handoff_count": "线下交付次数",
+  "offline.property_source": "现金或实物来源",
+  "offline.used": "是否发生取现或线下交付",
+  "special.ecommerce_logistics_impersonation": "是否涉及电商物流冒充场景",
+  "special.gambling_related": "是否涉及赌博场景",
+};
+
+const ENTITY_LABELS: Record<string, { label: string; counter: string }> = {
+  cs: { label: "后续联系人", counter: "个" },
+  contact_switch: { label: "后续联系人", counter: "个" },
+  transfer: { label: "转账", counter: "笔" },
+  rebate: { label: "返利", counter: "笔" },
+  withdrawal: { label: "取款", counter: "笔" },
+  offline_handoff: { label: "线下交付", counter: "次" },
+};
+
+const ENTITY_COLLECTION_LABELS: Record<string, string> = {
+  contact_switches: "后续联系人切换",
+  transfers: "转账记录",
+  rebates: "返利记录",
+  withdrawals: "取款记录",
+  offline_handoffs: "线下交付记录",
+};
+
+const DOMAIN_LABELS: Record<string, string> = {
+  header_procedure: "笔录头、个人信息与程序确认",
+  case_timeline: "案件经过、时间地点与主观原因",
+  contact_channels: "首次接触与联系渠道切换",
+  risk_and_evidence: "反诈宣传、风险提示与证据留存",
+  online_money: "线上资金流",
+  offline_delivery: "取现与线下交付",
+  special_scenarios: "特殊场景与补充事实",
+};
+
+const ENTITY_FIELD_LABELS: Record<string, string> = {
+  time: "时间",
+  channel: "联系渠道",
+  account: "账号",
+  important_information: "重要信息",
+  details: "详细内容",
+  amount: "金额",
+  payment_method: "支付方式",
+  payer_account: "付款账号",
+  recipient_account: "收款账号",
+  transaction_id: "交易流水号",
+  method: "方式",
+  bank: "银行",
+  branch: "银行网点",
+  address: "地址",
+  location: "地点",
+  property_type: "财物类型",
+  amount_or_value: "金额或价值",
+  recipient_or_logistics: "接收人或物流信息",
+};
+
+const displayEntityField = (fact: string) => {
+  const countMatch = fact.match(/^([a-z_]+)\.count$/);
+  if (countMatch) {
+    const collection = ENTITY_COLLECTION_LABELS[countMatch[1]];
+    return collection ? `${collection}数量` : null;
+  }
+  const entityMatch = fact.match(/^([a-z_]+)_(\d+)\.([a-z_]+)$/);
+  if (!entityMatch) return null;
+  const entity = ENTITY_LABELS[entityMatch[1]];
+  const field = ENTITY_FIELD_LABELS[entityMatch[3]];
+  if (!entity || !field) return null;
+  return `第${Number(entityMatch[2])}${entity.counter}${entity.label}${field}`;
 };
 
 export const displayGroupLabel = (group: string) => GROUP_LABELS[group] ?? group;
 export const displayRuleScope = (scope: string) => SCOPE_LABELS[scope] ?? scope;
-export const displayFactLabel = (fact: string) => FACT_LABELS[fact] ?? fact;
+export const displayDomainLabel = (domain: string) => DOMAIN_LABELS[domain] ?? domain;
+export const displayEntityTypeLabel = (entity: string) => ENTITY_COLLECTION_LABELS[entity] ?? entity;
+export const displayFactLabel = (fact: string) => FACT_LABELS[fact] ?? displayEntityField(fact) ?? fact;
+
+export const displayReviewReason = (reason: string) => reason.replace(
+  /\b[a-z][a-z0-9_]*(?:_[0-9]+)?\.[a-z][a-z0-9_]*\b/g,
+  (field) => displayFactLabel(field),
+);
