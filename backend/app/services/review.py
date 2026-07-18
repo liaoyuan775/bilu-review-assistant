@@ -31,28 +31,35 @@ from app.config import QWEN_MODEL
 from app.data import TEMPLATE_RULE_CATALOG
 from app.development_logging import log_event, log_payload, reset_task_id, set_task_id
 from app.errors import AppError
-from app.models import ArtifactSummary, DocumentParagraph, ManualDecision, ManualStatus, ReviewMode, ReviewStatus, ReviewTask, RuleStatus, SourceType, TaskStatus, now_iso
+from app.models import ArtifactSummary, DocumentParagraph, ManualDecision, ManualStatus, ReviewMode, ReviewResult, ReviewStatus, ReviewTask, RuleStatus, SourceType, TaskStatus, now_iso
 from app.services.archive import assert_archive_ready, verify_archive_artifacts
 from app.services.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_original
 from app.services.question_answer import reconstruct_question_answers
 from app.services.mock_review import build_mock_review
 from app.services.parser import parse_document
-from app.services.template_extraction import TemplateReviewOutcome, review_template_document, run_template_review
+from app.services.template_extraction import (
+    DOMAIN_ENTITY_FIELDS,
+    DOMAIN_FACT_PATHS,
+    DOMAIN_ORDER,
+    TemplateDomainFailure,
+    TemplateReviewOutcome,
+    review_template_document,
+    run_template_review,
+)
 from app.services.victim_profile import extract_victim_profile
 from app.template_models import CaseExtraction
 from app.store import (
-    append_manual_event,
     get_audit_snapshot,
     get_artifact_record,
     get_task,
     list_tasks,
+    persist_review_outcome,
     save_artifact_record,
     save_document,
     save_document_version,
-    save_extracted_fact,
-    save_review_issue,
     save_review_run,
     save_task,
+    save_task_with_events,
 )
 
 
@@ -80,6 +87,42 @@ _REQUIRED_ARTIFACTS = list(GENERATED_REVIEW_ARTIFACT_TYPES)
 def _invalidate_generated_artifacts(task: ReviewTask) -> None:
     task.requiredArtifacts = list(GENERATED_REVIEW_ARTIFACT_TYPES)
     task.artifacts = [item for item in task.artifacts if item.type == "original"]
+
+
+def _missing_extraction_domains(extraction: CaseExtraction) -> list[str]:
+    missing: list[str] = []
+    for domain in DOMAIN_ORDER:
+        required_entities = DOMAIN_ENTITY_FIELDS[domain]
+        if (
+            any(path not in extraction.facts for path in DOMAIN_FACT_PATHS[domain])
+            or any(entity_type not in extraction.entities for entity_type in required_entities)
+        ):
+            missing.append(domain)
+    return missing
+
+
+def _merge_manual_decisions(
+    previous_results: list[ReviewResult],
+    refreshed_results: list[ReviewResult],
+    *,
+    affected_domains: set[str],
+    resolved_rule_id: str | None = None,
+) -> list[str]:
+    previous = {item.ruleId: item for item in previous_results}
+    invalidated: list[str] = []
+    for item in refreshed_results:
+        prior = previous.get(item.ruleId)
+        if prior is None:
+            continue
+        domain = _GROUP_DOMAINS.get(item.group)
+        if domain not in affected_domains:
+            item.manualDecision = prior.manualDecision.model_copy(deep=True)
+        elif (
+            item.ruleId != resolved_rule_id
+            and prior.manualDecision.status != ManualStatus.PENDING
+        ):
+            invalidated.append(item.ruleId)
+    return sorted(invalidated)
 
 
 def create_task(mode: ReviewMode) -> ReviewTask:
@@ -178,15 +221,21 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         save_task(task)
         log_event(logging.INFO, "review.status_changed", status=task.status.value)
         task.results = outcome.results
-        _persist_outcome(task, outcome)
         task.status = TaskStatus.COMPLETED
+        _persist_outcome(task, outcome)
         log_payload("review.results_merged", [result.model_dump(mode="json") for result in task.results], rules=len(task.results))
     except AppError as error:
         task.status = TaskStatus.FAILED
         task.results = []
         task.errorCode = error.code
         task.errorMessage = error.message
-        if error.code == "template_domain_failed" and error.field:
+        if isinstance(error, TemplateDomainFailure):
+            task.extractionPayload = error.partial_extraction.model_dump(mode="json")
+            task.failedDomains = list(dict.fromkeys([
+                *task.failedDomains,
+                *error.failed_domains,
+            ]))
+        elif error.code == "template_domain_failed" and error.field:
             task.failedDomains = list(dict.fromkeys([*task.failedDomains, error.field]))
         if task.documentVersionId:
             task.reviewRunId = save_review_run(
@@ -283,7 +332,6 @@ async def process_demo(task_id: str, demo_id: str) -> None:
             if task.mode == ReviewMode.QWEN:
                 outcome = await run_template_review(task.document, group_timings=group_timings)
                 results = outcome.results
-                _persist_outcome(task, outcome)
             else:
                 results = build_mock_review(task.document)
         finally:
@@ -293,6 +341,8 @@ async def process_demo(task_id: str, demo_id: str) -> None:
         save_task(task)
         task.results = results
         task.status = TaskStatus.COMPLETED
+        if task.mode == ReviewMode.QWEN:
+            _persist_outcome(task, outcome)
     except FileNotFoundError:
         task.status = TaskStatus.FAILED
         task.results = []
@@ -319,32 +369,40 @@ def _issue_id(task_id: str, rule_id: str) -> str | None:
     return next((item["id"] for item in reversed(issues) if item["rule_id"] == rule_id), None)
 
 
-def _persist_outcome(task: ReviewTask, outcome: TemplateReviewOutcome) -> None:
+def _persist_outcome(
+    task: ReviewTask,
+    outcome: TemplateReviewOutcome,
+    *,
+    events: list[dict] | None = None,
+) -> bool:
     task.extractionPayload = outcome.extraction.model_dump(mode="json")
     snapshot = get_audit_snapshot(task.id)
     if not task.documentVersionId or not any(
         version["id"] == task.documentVersionId for version in snapshot["versions"]
     ):
-        return
-    run_id = save_review_run(
-        task.id,
+        return False
+    run_id = persist_review_outcome(
+        task,
         task.documentVersionId,
         rule_version=TEMPLATE_RULE_CATALOG.version,
         model=QWEN_MODEL,
-        status="completed",
         timings=task.timings.modelGroupsMs,
+        facts={
+            path: fact.model_dump(mode="json")
+            for path, fact in outcome.extraction.facts.items()
+        },
+        entities={
+            entity_type: {"items": [entity.model_dump(mode="json") for entity in entities]}
+            for entity_type, entities in outcome.extraction.entities.items()
+        },
+        issues=[
+            (issue.ruleId, issue.model_dump(mode="json"))
+            for issue in outcome.issues
+        ],
+        events=events,
     )
     task.reviewRunId = run_id
-    for path, fact in outcome.extraction.facts.items():
-        save_extracted_fact(run_id, path, fact.model_dump(mode="json"))
-    for entity_type, entities in outcome.extraction.entities.items():
-        save_extracted_fact(
-            run_id,
-            f"entities.{entity_type}",
-            {"items": [entity.model_dump(mode="json") for entity in entities]},
-        )
-    for issue in outcome.issues:
-        save_review_issue(run_id, issue.ruleId, issue.model_dump(mode="json"))
+    return True
 
 
 def record_issue_action(
@@ -380,18 +438,16 @@ def record_issue_action(
     result.manualDecision.status = status
     result.manualDecision.reason = normalized_reason
     _invalidate_generated_artifacts(task)
-    append_manual_event(
-        task.id,
-        issue_id=_issue_id(task.id, rule_id),
-        event_type=status.value,
-        actor_id=actor_id.strip() or "local-operator",
-        payload={
+    save_task_with_events(task, [{
+        "issue_id": _issue_id(task.id, rule_id),
+        "event_type": status.value,
+        "actor_id": actor_id.strip() or "local-operator",
+        "payload": {
             "ruleId": rule_id,
             "previous": previous,
             "current": result.manualDecision.model_dump(mode="json"),
         },
-    )
-    save_task(task)
+    }])
     return result
 
 
@@ -407,14 +463,12 @@ def acknowledge_warnings(task_id: str, codes: list[str], actor_id: str) -> Revie
         raise AppError("warning_not_found", "包含当前文档不存在的告警代码。", 404)
     task.acknowledgedWarnings = list(dict.fromkeys([*task.acknowledgedWarnings, *codes]))
     _invalidate_generated_artifacts(task)
-    append_manual_event(
-        task.id,
-        issue_id=None,
-        event_type="warnings_acknowledged",
-        actor_id=actor_id.strip() or "local-operator",
-        payload={"codes": codes},
-    )
-    return save_task(task)
+    return save_task_with_events(task, [{
+        "issue_id": None,
+        "event_type": "warnings_acknowledged",
+        "actor_id": actor_id.strip() or "local-operator",
+        "payload": {"codes": codes},
+    }])
 
 
 def review_versions(task_id: str) -> list[dict]:
@@ -489,13 +543,9 @@ async def record_follow_up_answer(
         raise AppError("rule_result_not_found", "规则结果不存在。", 404)
     if not question.strip() or not answer.strip():
         raise AppError("follow_up_answer_required", "实际补问和答案均不能为空。", 422)
+    starting_revision = task.revision
+    previous_results = task.results
     updated_document = _append_follow_up(task.document, question, answer)
-    task.documentVersionId = save_document_version(
-        task.documentId,
-        content_sha256=sha256(updated_document.text.encode("utf-8")).hexdigest(),
-        parsed_payload=updated_document.model_dump(mode="json"),
-    )
-    task.document = updated_document
     domain = _GROUP_DOMAINS.get(result.group)
     if domain is None:
         raise AppError("unknown_rule_domain", "无法确定该问题所属的复核业务域。", 500)
@@ -516,7 +566,23 @@ async def record_follow_up_answer(
             base_extraction=base,
         )
         task.results = outcome.results
-        _persist_outcome(task, outcome)
+    latest = get_task(task.id)
+    if latest is None or latest.revision != starting_revision:
+        raise AppError("task_revision_conflict", "审查任务已被其他操作更新，请刷新后重试。", 409)
+    if latest.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能继续修改。", 409)
+    task.documentVersionId = save_document_version(
+        task.documentId,
+        content_sha256=sha256(updated_document.text.encode("utf-8")).hexdigest(),
+        parsed_payload=updated_document.model_dump(mode="json"),
+    )
+    task.document = updated_document
+    invalidated = _merge_manual_decisions(
+        previous_results,
+        task.results,
+        affected_domains={domain},
+        resolved_rule_id=rule_id,
+    )
     refreshed = next((item for item in task.results if item.ruleId == rule_id), None)
     if refreshed is not None:
         refreshed.manualDecision = ManualDecision(
@@ -524,14 +590,24 @@ async def record_follow_up_answer(
             reason="已记录实际补问和答案并完成受影响域复核。",
         )
     _invalidate_generated_artifacts(task)
-    append_manual_event(
-        task.id,
-        issue_id=_issue_id(task.id, rule_id),
-        event_type="follow_up_answer",
-        actor_id=actor_id.strip() or "local-operator",
-        payload={"ruleId": rule_id, "question": question.strip(), "answer": answer.strip(), "documentVersionId": task.documentVersionId},
-    )
-    return save_task(task)
+    events: list[dict] = []
+    if invalidated:
+        events.append({
+            "issue_id": None,
+            "event_type": "decisions_invalidated",
+            "actor_id": actor_id.strip() or "local-operator",
+            "payload": {"domain": domain, "ruleIds": invalidated},
+        })
+    events.append({
+        "issue_id": _issue_id(task.id, rule_id),
+        "event_type": "follow_up_answer",
+        "actor_id": actor_id.strip() or "local-operator",
+        "payload": {"ruleId": rule_id, "question": question.strip(), "answer": answer.strip(), "documentVersionId": task.documentVersionId},
+    })
+    if task.mode != ReviewMode.MOCK:
+        if _persist_outcome(task, outcome, events=events):
+            return task
+    return save_task_with_events(task, events)
 
 
 async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> ReviewTask:
@@ -544,28 +620,53 @@ async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> Revie
         raise AppError("domain_not_failed", "该业务域当前不在失败列表中。", 409)
     if task.document is None:
         raise AppError("document_not_available", "审查文档不可用，无法重试。", 409)
+    starting_revision = task.revision
+    previous_results = task.results
     base = CaseExtraction.model_validate(task.extractionPayload or {})
+    missing_before = _missing_extraction_domains(base)
+    retry_domains = DOMAIN_ORDER if set(missing_before) == set(DOMAIN_ORDER) else (domain,)
     outcome = await run_template_review(
         task.document,
         group_timings=task.timings.modelGroupsMs,
-        domains=(domain,),
+        domains=retry_domains,
         base_extraction=base,
     )
-    task.results = outcome.results
-    task.failedDomains = [value for value in task.failedDomains if value != domain]
-    task.status = TaskStatus.COMPLETED if not task.failedDomains else TaskStatus.FAILED
+    latest = get_task(task.id)
+    if latest is None or latest.revision != starting_revision:
+        raise AppError("task_revision_conflict", "审查任务已被其他操作更新，请刷新后重试。", 409)
+    if latest.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能重试。", 409)
+    missing_after = _missing_extraction_domains(outcome.extraction)
+    completed = not missing_after and len(outcome.results) == len(TEMPLATE_RULE_CATALOG.rules)
+    task.results = outcome.results if completed else []
+    task.failedDomains = missing_after
+    task.status = TaskStatus.COMPLETED if completed else TaskStatus.FAILED
     task.errorCode = None if not task.failedDomains else task.errorCode
     task.errorMessage = None if not task.failedDomains else task.errorMessage
-    _persist_outcome(task, outcome)
-    _invalidate_generated_artifacts(task)
-    append_manual_event(
-        task.id,
-        issue_id=None,
-        event_type="domain_retried",
-        actor_id=actor_id.strip() or "local-operator",
-        payload={"domain": domain, "completed": not task.failedDomains},
+    invalidated = _merge_manual_decisions(
+        previous_results,
+        task.results,
+        affected_domains=set(retry_domains),
     )
-    return save_task(task)
+    _invalidate_generated_artifacts(task)
+    events: list[dict] = []
+    if invalidated:
+        events.append({
+            "issue_id": None,
+            "event_type": "decisions_invalidated",
+            "actor_id": actor_id.strip() or "local-operator",
+            "payload": {"domain": domain, "ruleIds": invalidated},
+        })
+    events.append({
+        "issue_id": None,
+        "event_type": "domain_retried",
+        "actor_id": actor_id.strip() or "local-operator",
+        "payload": {"domain": domain, "completed": completed},
+    })
+    if completed:
+        if _persist_outcome(task, outcome, events=events):
+            return task
+    return save_task_with_events(task, events)
 
 
 def update_decision(task_id: str, rule_id: str, status: ManualStatus, reason: str):
@@ -609,14 +710,12 @@ def complete_review(task_id: str) -> ReviewTask:
             raise AppError("review_has_pending_results", f"还有 {len(pending)} 项待处置。", 409)
     task.reviewStatus = ReviewStatus.ARCHIVED
     task.archivedAt = now_iso()
-    append_manual_event(
-        task.id,
-        issue_id=None,
-        event_type="archived",
-        actor_id="local-operator",
-        payload={"archivedAt": task.archivedAt},
-    )
-    return save_task(task)
+    return save_task_with_events(task, [{
+        "issue_id": None,
+        "event_type": "archived",
+        "actor_id": "local-operator",
+        "payload": {"archivedAt": task.archivedAt},
+    }])
 
 
 def review_history() -> list[dict]:

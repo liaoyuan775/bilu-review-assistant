@@ -310,6 +310,7 @@ class ArtifactSummary(BaseModel):
 class ReviewTask(BaseModel):
     """审查任务 — 系统的核心聚合根，包含一份笔录的全部审查状态。"""
     id: str = Field(default_factory=lambda: str(uuid4()))
+    revision: int = Field(default=0, ge=0)
     mode: ReviewMode
     status: TaskStatus = TaskStatus.PARSING
     document: ParsedDocument | None = None

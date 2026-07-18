@@ -9,12 +9,43 @@ import fitz
 
 from app import store
 from app.main import app
+from app.models import ReviewMode, ReviewTask
 from app.services import artifacts
+from app.services.reports import build_structured_report
 from app.services.artifacts import ArtifactStorage
 from app.store import SqliteTaskStore
 
 
 client = TestClient(app)
+
+
+def test_structured_report_exports_only_current_run_facts_with_provenance():
+    task = ReviewTask(
+        mode=ReviewMode.QWEN,
+        documentVersionId="version-current",
+        reviewRunId="run-current",
+    )
+    snapshot = {
+        "events": [],
+        "runs": [
+            {"id": "run-old", "document_version_id": "version-old"},
+            {"id": "run-current", "document_version_id": "version-current"},
+        ],
+        "facts": [
+            {"run_id": "run-old", "path": "case.report_reason", "payload": {"value": "旧轮次"}, "created_at": "old"},
+            {"run_id": "run-current", "path": "case.report_reason", "payload": {"value": "当前轮次"}, "created_at": "new"},
+        ],
+    }
+
+    report = build_structured_report(task, snapshot)
+
+    assert report["facts"] == [{
+        "runId": "run-current",
+        "documentVersionId": "version-current",
+        "path": "case.report_reason",
+        "payload": {"value": "当前轮次"},
+        "createdAt": "new",
+    }]
 
 
 def _ready_demo(tmp_path, monkeypatch) -> str:

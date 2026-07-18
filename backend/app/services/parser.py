@@ -145,8 +145,13 @@ def _paginate(blocks: list[DocumentParagraph], target_chars: int = 1800) -> list
     return pages
 
 
-def _finalize_pages(pages: list[DocumentPage], content: bytes) -> tuple[list[DocumentPage], str]:
-    document_digest = sha256(content).hexdigest()
+def _finalize_pages(pages: list[DocumentPage]) -> tuple[list[DocumentPage], str]:
+    document_identity = "\0".join(
+        f"{page.page}:{index}:{paragraph.sourceType.value}:{paragraph.text}"
+        for page in pages
+        for index, paragraph in enumerate(page.paragraphs, start=1)
+    )
+    document_digest = sha256(document_identity.encode("utf-8")).hexdigest()
     text_parts: list[str] = []
     offset = 0
     finalized_pages: list[DocumentPage] = []
@@ -184,7 +189,7 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
         blocks.extend(_vision_blocks(await transcribe_image(image, media_type)))
     if not blocks:
         raise AppError("empty_document", "文档中没有可供审查的文字或图片内容。", 422)
-    pages, full_text = _finalize_pages(_paginate(blocks), content)
+    pages, full_text = _finalize_pages(_paginate(blocks))
     parsed = ParsedDocument(
         name=filename,
         format="DOCX",
@@ -243,7 +248,7 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
             pages.append(DocumentPage(page=index + 1, paragraphs=blocks))
     finally:
         document.close()
-    pages, full_text = _finalize_pages(pages, content)
+    pages, full_text = _finalize_pages(pages)
     if not full_text:
         raise AppError("empty_document", "PDF 中没有识别到可供审查的内容。", 422)
     parsed = ParsedDocument(

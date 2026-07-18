@@ -23,7 +23,7 @@ from app.services.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_generat
 from app.services.docx_report import build_follow_up_docx
 from app.services.parser import PARSER_VERSION
 from app.services.report_labels import event_type_label, format_datetime, manual_status_label, mode_label, severity_label
-from app.store import append_manual_event, get_audit_snapshot, get_task, save_artifact_record, save_task
+from app.store import get_audit_snapshot, get_task, save_artifact_record, save_task_with_events
 
 
 _PDF_FONT = "BiluYaHei"
@@ -66,6 +66,15 @@ def _manual_events(snapshot: dict) -> list[dict]:
 
 def build_structured_report(task: ReviewTask, snapshot: dict) -> dict:
     counts = Counter(item.status.value for item in task.results)
+    current_run = next(
+        (run for run in snapshot.get("runs", []) if run["id"] == task.reviewRunId),
+        None,
+    )
+    current_version_id = (
+        current_run["document_version_id"]
+        if current_run is not None
+        else task.documentVersionId
+    )
     return {
         "schemaVersion": "template-review-report-v1",
         "task": {
@@ -90,10 +99,12 @@ def build_structured_report(task: ReviewTask, snapshot: dict) -> dict:
         "results": [item.model_dump(mode="json") for item in task.results],
         "manualEvents": _manual_events(snapshot),
         "facts": [{
+            "runId": fact["run_id"],
+            "documentVersionId": current_version_id,
             "path": fact["path"],
-            "payload": _json_value(fact.get("payload_json"), {}),
+            "payload": _json_value(fact.get("payload"), {}),
             "createdAt": fact["created_at"],
-        } for fact in snapshot["facts"]],
+        } for fact in snapshot["facts"] if fact["run_id"] == task.reviewRunId],
     }
 
 
@@ -264,11 +275,9 @@ def generate_review_artifacts(task_id: str) -> ReviewTask:
     manifest = _save_record(task, "archive_manifest", f"{stem}-归档清单.json", manifest_bytes)
     task.requiredArtifacts = list(GENERATED_REVIEW_ARTIFACT_TYPES)
     task.artifacts = [*listed, manifest]
-    append_manual_event(
-        task.id,
-        issue_id=None,
-        event_type="artifacts_generated",
-        actor_id="local-operator",
-        payload={"documentVersionId": task.documentVersionId, "artifactIds": [item.id for item in generated] + [manifest.id]},
-    )
-    return save_task(task)
+    return save_task_with_events(task, [{
+        "issue_id": None,
+        "event_type": "artifacts_generated",
+        "actor_id": "local-operator",
+        "payload": {"documentVersionId": task.documentVersionId, "artifactIds": [item.id for item in generated] + [manifest.id]},
+    }])

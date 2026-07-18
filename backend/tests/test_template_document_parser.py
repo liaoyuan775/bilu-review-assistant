@@ -4,14 +4,16 @@ from io import BytesIO
 import os
 from pathlib import Path
 import struct
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 import fitz
 from docx import Document
 from docx.shared import Inches
+from lxml import etree
 
 from app.services.parser import parse_document
+from app.services.openxml import read_docx_parts
 
 
 PNG_1X1 = base64.b64decode(
@@ -57,6 +59,34 @@ def _docx_with_header_and_footer() -> bytes:
     return output.getvalue()
 
 
+def _rewrite_docx(content: bytes, replacements: dict[str, bytes], additions: dict[str, bytes] | None = None) -> bytes:
+    output = BytesIO()
+    with ZipFile(BytesIO(content)) as source, ZipFile(output, "w", ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            target.writestr(item.filename, replacements.get(item.filename, source.read(item.filename)))
+        for name, value in (additions or {}).items():
+            target.writestr(name, value)
+    return output.getvalue()
+
+
+def _docx_with_body_content_control() -> bytes:
+    content = _simple_docx("内容控件中的关键询问事实")
+    with ZipFile(BytesIO(content)) as archive:
+        xml = archive.read("word/document.xml")
+    root = etree.fromstring(xml)
+    namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    body = root.find(f"{{{namespace}}}body")
+    paragraph = body.find(f"{{{namespace}}}p")
+    index = body.index(paragraph)
+    body.remove(paragraph)
+    control = etree.Element(f"{{{namespace}}}sdt")
+    control_content = etree.SubElement(control, f"{{{namespace}}}sdtContent")
+    control_content.append(paragraph)
+    body.insert(index, control)
+    rewritten = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+    return _rewrite_docx(content, {"word/document.xml": rewritten})
+
+
 def _pdf_with_native_text() -> bytes:
     document = fitz.open()
     page = document.new_page()
@@ -89,12 +119,65 @@ def test_document_blocks_have_stable_ids_and_exact_character_ranges():
     assert all(first.text[block.charStart:block.charEnd] == block.text for block in first_blocks)
 
 
+def test_document_block_ids_ignore_nonvisible_docx_metadata():
+    def docx_with_title(title: str) -> bytes:
+        document = Document()
+        document.core_properties.title = title
+        document.add_paragraph("相同的可见询问笔录正文")
+        output = BytesIO()
+        document.save(output)
+        return output.getvalue()
+
+    first = asyncio.run(parse_document("record.docx", docx_with_title("元数据版本一")))
+    second = asyncio.run(parse_document("record.docx", docx_with_title("元数据版本二")))
+
+    assert first.text == second.text
+    assert first.pages[0].paragraphs[0].id == second.pages[0].paragraphs[0].id
+
+
 def test_docx_parser_preserves_header_and_footer_text():
     parsed = asyncio.run(parse_document("template.docx", _docx_with_header_and_footer()))
 
     assert "内部询问笔录页眉" in parsed.text
     assert "正文问答" in parsed.text
     assert "被询问人签名：测试签名" in parsed.text
+
+
+def test_docx_parser_preserves_body_content_controls_in_reading_order():
+    parsed = asyncio.run(parse_document("template.docx", _docx_with_body_content_control()))
+
+    assert parsed.text == "内容控件中的关键询问事实"
+
+
+def test_docx_reader_ignores_unreferenced_hidden_header_and_media_parts():
+    content = _simple_docx("可见正文")
+    hidden_header = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:p><w:r><w:t>隐藏孤立页眉</w:t></w:r></w:p></w:hdr>'
+    ).encode("utf-8")
+    injected = _rewrite_docx(content, {}, {
+        "word/header99.xml": hidden_header,
+        "word/media/orphan.png": PNG_1X1,
+    })
+
+    parts = read_docx_parts(injected)
+
+    assert [block.text for block in parts.blocks] == ["可见正文"]
+    assert parts.images == []
+
+
+def test_docx_reader_rejects_suspicious_package_expansion():
+    content = _simple_docx("可见正文")
+    with ZipFile(BytesIO(content)) as archive:
+        xml = archive.read("word/document.xml")
+    expanded = xml.replace(b"</w:body>", b"A" * (2 * 1024 * 1024) + b"</w:body>")
+    suspicious = _rewrite_docx(content, {"word/document.xml": expanded})
+
+    with pytest.raises(Exception) as error:
+        read_docx_parts(suspicious)
+
+    assert getattr(error.value, "code", None) == "docx_expansion_limit"
 
 
 def test_parsed_document_exposes_reconstructed_question_answers():

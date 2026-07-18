@@ -6,10 +6,11 @@ import sqlite3
 from uuid import uuid4
 
 from app.config import REVIEW_DATABASE_PATH
+from app.errors import AppError
 from app.models import ReviewTask, now_iso
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class SqliteTaskStore:
@@ -37,6 +38,12 @@ class SqliteTaskStore:
                 connection.execute(
                     "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                     (1, now_iso()),
+                )
+            if current < 2:
+                self._migrate_v2(connection)
+                connection.execute(
+                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                    (2, now_iso()),
                 )
             if current > SCHEMA_VERSION:
                 raise RuntimeError(f"Database schema {current} is newer than supported {SCHEMA_VERSION}")
@@ -155,23 +162,95 @@ class SqliteTaskStore:
         for statement in statements:
             connection.execute(statement)
 
+    @staticmethod
+    def _migrate_v2(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "ALTER TABLE review_tasks ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+        )
+
     def schema_version(self) -> int:
         with self._connect() as connection:
             return int(connection.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations").fetchone()[0])
 
-    def save_task(self, task: ReviewTask) -> ReviewTask:
-        task.updatedAt = now_iso()
-        with self._connect() as connection:
+    @staticmethod
+    def _write_task(connection: sqlite3.Connection, task: ReviewTask) -> ReviewTask:
+        updated_at = now_iso()
+        row = connection.execute(
+            "SELECT revision FROM review_tasks WHERE id = ?",
+            (task.id,),
+        ).fetchone()
+        if row is None:
+            saved = task.model_copy(update={"revision": 0, "updatedAt": updated_at})
+            connection.execute(
+                "INSERT INTO review_tasks (id, updated_at, payload_json, revision) VALUES (?, ?, ?, ?)",
+                (task.id, updated_at, saved.model_dump_json(), 0),
+            )
+            return saved
+        current_revision = int(row[0])
+        if current_revision != task.revision:
+            raise AppError(
+                "task_revision_conflict",
+                "审查任务已被其他操作更新，请刷新后重试。",
+                409,
+            )
+        next_revision = current_revision + 1
+        saved = task.model_copy(update={"revision": next_revision, "updatedAt": updated_at})
+        cursor = connection.execute(
+            """
+            UPDATE review_tasks
+            SET updated_at = ?, payload_json = ?, revision = ?
+            WHERE id = ? AND revision = ?
+            """,
+            (updated_at, saved.model_dump_json(), next_revision, task.id, current_revision),
+        )
+        if cursor.rowcount != 1:
+            raise AppError(
+                "task_revision_conflict",
+                "审查任务已被其他操作更新，请刷新后重试。",
+                409,
+            )
+        return saved
+
+    @staticmethod
+    def _apply_saved_task(task: ReviewTask, saved: ReviewTask) -> None:
+        task.revision = saved.revision
+        task.updatedAt = saved.updatedAt
+
+    @staticmethod
+    def _insert_events(
+        connection: sqlite3.Connection,
+        task_id: str,
+        events: list[dict],
+    ) -> None:
+        for event in events:
             connection.execute(
                 """
-                INSERT INTO review_tasks (id, updated_at, payload_json)
-                VALUES (?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    updated_at = excluded.updated_at,
-                    payload_json = excluded.payload_json
+                INSERT INTO manual_events
+                    (id, task_id, issue_id, event_type, actor_id, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (task.id, task.updatedAt, task.model_dump_json()),
+                (
+                    str(uuid4()),
+                    task_id,
+                    event.get("issue_id"),
+                    event["event_type"],
+                    event["actor_id"],
+                    _json(event.get("payload", {})),
+                    now_iso(),
+                ),
             )
+
+    def save_task(self, task: ReviewTask) -> ReviewTask:
+        with self._connect() as connection:
+            saved = self._write_task(connection, task)
+        self._apply_saved_task(task, saved)
+        return task
+
+    def save_task_with_events(self, task: ReviewTask, events: list[dict]) -> ReviewTask:
+        with self._connect() as connection:
+            saved = self._write_task(connection, task)
+            self._insert_events(connection, task.id, events)
+        self._apply_saved_task(task, saved)
         return task
 
     def get_task(self, task_id: str) -> ReviewTask | None:
@@ -272,6 +351,58 @@ class SqliteTaskStore:
                 (issue_id, run_id, rule_id, _json(payload), now_iso()),
             )
         return issue_id
+
+    def persist_review_outcome(
+        self,
+        task: ReviewTask,
+        document_version_id: str,
+        *,
+        rule_version: str,
+        model: str,
+        timings: dict,
+        facts: dict[str, dict],
+        entities: dict[str, dict],
+        issues: list[tuple[str, dict]],
+        events: list[dict] | None = None,
+    ) -> str:
+        run_id = str(uuid4())
+        created_at = now_iso()
+        with self._connect() as connection:
+            saved = self._write_task(
+                connection,
+                task.model_copy(update={"reviewRunId": run_id}),
+            )
+            connection.execute(
+                """
+                INSERT INTO review_runs
+                    (id, task_id, document_version_id, rule_version, model, status, timings_json, created_at, completed_at)
+                VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL)
+                """,
+                (run_id, task.id, document_version_id, rule_version, model, _json(timings), created_at),
+            )
+            for path, payload in facts.items():
+                connection.execute(
+                    "INSERT INTO extracted_facts (id, run_id, path, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (str(uuid4()), run_id, path, _json(payload), now_iso()),
+                )
+            for entity_type, payload in entities.items():
+                connection.execute(
+                    "INSERT INTO extracted_facts (id, run_id, path, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (str(uuid4()), run_id, f"entities.{entity_type}", _json(payload), now_iso()),
+                )
+            for rule_id, payload in issues:
+                connection.execute(
+                    "INSERT INTO review_issues (id, run_id, rule_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (str(uuid4()), run_id, rule_id, _json(payload), now_iso()),
+                )
+            connection.execute(
+                "UPDATE review_runs SET status = 'completed', completed_at = ? WHERE id = ?",
+                (now_iso(), run_id),
+            )
+            self._insert_events(connection, task.id, events or [])
+        task.reviewRunId = run_id
+        self._apply_saved_task(task, saved)
+        return run_id
 
     def append_manual_event(
         self,
@@ -400,6 +531,10 @@ def save_task(task: ReviewTask) -> ReviewTask:
     return STORE.save_task(task)
 
 
+def save_task_with_events(task: ReviewTask, events: list[dict]) -> ReviewTask:
+    return STORE.save_task_with_events(task, events)
+
+
 def get_task(task_id: str) -> ReviewTask | None:
     return STORE.get_task(task_id)
 
@@ -426,6 +561,10 @@ def save_extracted_fact(*args, **kwargs) -> str:
 
 def save_review_issue(*args, **kwargs) -> str:
     return STORE.save_review_issue(*args, **kwargs)
+
+
+def persist_review_outcome(*args, **kwargs) -> str:
+    return STORE.persist_review_outcome(*args, **kwargs)
 
 
 def append_manual_event(*args, **kwargs) -> str:

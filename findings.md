@@ -48,3 +48,47 @@
 - After embedding Microsoft YaHei, regenerated PDF pages 1-4 show intact rule IDs, model names, `mock`, and severity words with no clipping, overlap, missing glyphs, or substitution warnings. Pagination remains A4, 8 pages.
 - PDF pages 5-8 also pass visual inspection; the manual-log/disclaimer section is intentionally isolated on the final page and footer numbering is continuous through 8/8.
 - Word rendering exposed the python-docx default Letter page size. Added a regression requiring 21.0 x 29.7 cm and set the generated DOCX section to A4.
+
+## 2026-07-18 Task 10 live quality gate
+
+- Five isolated case reports (`gold-01` through `gold-05`) each contain three live runs with all six quality metrics at 100%, zero mismatches, and zero sensitive findings.
+- The first `gold-06-offline-delivery` batch failed only in `offline_delivery`: one configured-model request reached the 240-second read timeout and the following two strict attempts returned invalid model schema. The other six extraction domains completed.
+- No `verify_template_quality.py` process remained after the failure, so the next diagnostic run can isolate one case without hidden concurrent model load.
+- Keep strict schema, evidence-anchor, semantic-fingerprint, and sensitive-data gates unchanged; use case-level reruns to absorb external model-service long tails.
+- The isolated rerun proved a deterministic correction-protocol defect: all three `offline_delivery` responses returned HTTP 200, but attempts two and three had the identical response hash because duplicate entity IDs raised an `AppError` without `correction_hint`, so retry messages contained `instruction: null`.
+- RED/GREEN regression now requires global entity-ID uniqueness in both the initial prompt and duplicate-ID correction feedback. The strict validator still rejects duplicate IDs; no automatic deduplication or threshold weakening was introduced.
+- The formal three-run rerun remained semantically stable but scored 94.12%: every run left `withdrawals` and `offline_handoffs` empty, so `CASH-003` and `OFFLINE-001` correctly became inconsistent on their count checks.
+- Gold text explicitly contains one fully populated item for each entity type and the rules require those counts to match. The prompt currently lists only fact paths, not the domain's entity arrays or required entity fields, and says only that repeated facts must be preserved. It must explicitly require entity extraction even when the event occurs once.
+- Adding the entity contract fixed entity recall, but a new formal run scored 91.18% because `CASE-001`, `TIME-001`, and `TIME-002` became incomplete in all three runs. A single isolated `case_timeline` request on the same visible text returned every timeline fact as missing.
+- Within one process, all three `case_timeline` prompts have the same hash and results are stable. Across regenerated gold files, the parsed text SHA is identical but prompt hashes change because paragraph IDs include the raw DOCX package SHA; ZIP timestamps or core metadata therefore change anchors even when visible content is unchanged.
+- Stable evidence anchors should be derived from normalized pages, source types, and paragraph text. Raw-file integrity remains separately protected by original artifact SHA-256 and must not be conflated with semantic location identity.
+- After switching paragraph identity to normalized page/position/source/text structure, two independently generated `gold-06` DOCX packages produced identical anchor lists and the identical `case_timeline` prompt hash `56a22c41...e64b5fb`.
+- With stable anchors and the explicit entity contract, `gold-06-offline-delivery` passed three live runs at 100% for all six metrics with zero mismatches and zero sensitive findings; every run retained one withdrawal and one offline handoff.
+- `gold-07-special` passed its current-code three-run live gate. `gold-08-case-procedure` stopped in its first targeted recheck after `contact_channels` timed out at 240 seconds, returned one invalid anchor on retry, and timed out again at 240 seconds.
+- The same stable `gold-08` `contact_channels` domain run alone corrected its invalid anchor and completed in about 55 seconds. This isolates the long tail to concurrent targeted recheck load, not prompt size or schema impossibility.
+- Preserve concurrency 2 for the initial seven independent domains, but serialize the much smaller ambiguous-applicability recheck. This keeps most of the measured latency gain while avoiding model-server contention on long prompts.
+- Serializing targeted recheck reproduced the exact same deterministic failure, disproving concurrency as the root cause. The serial-only change should not remain.
+- `focus_paths` currently changes only an advisory line: the base prompt still lists every fact in the domain, the strict Schema still requires every domain fact and entity array, and each domain receives focus paths belonging to other domains. A true targeted recheck must filter focus paths per domain and shrink prompt plus Schema to those facts.
+- Focus-only Schema verification on the exact failing `gold-08` contact applicability paths completed in 11.5 seconds, returned only the three requested booleans as missing, and produced no invalid anchors or retries.
+- The focus-only `gold-08` three-run gate completed, but one initial extraction contained unsupported transfer/rebate entities while the other runs did not. The report still said semantic stability 100% because `verify_template_quality.py` compares only `(ruleId, status)` pairs and does not use the existing full semantic fingerprint.
+- All live reports must be regenerated after wiring the verifier to final fact values/clarity/anchors, entities, rule statuses, missing fields, and issue anchors. Previously persisted 100% reports are insufficient evidence under the intended metric.
+- After adding entity applicability/count validation, `gold-08-case-procedure` passed three live runs with the full semantic fingerprint at 100% across all six metrics and no mismatches or sensitive findings.
+
+## 2026-07-18 Task 10 isolated results and Task 11 performance
+
+- Gold stability must compare semantic correctness, not raw model phrasing. Values are canonicalized only when the existing oracle comparator proves them equivalent; non-equivalent fact/entity changes still alter the fingerprint.
+- Drift diagnostics expose only fact/entity/rule paths, clarity, counts, and booleans. They do not put synthetic or case values into failure reports.
+- The benchmark uses `gold-12-complete`, the largest seven-domain record, and rejects a sample before timing aggregation if any of 92 facts, entity counts/fields, 34 rule statuses, or required evidence anchors fail.
+- Sharing one `httpx.AsyncClient` and raising the bounded domain semaphore from 2 to 7 changes only request scheduling. Prompts, Schema, validation, retry limits, model, endpoint, and deterministic rules remain identical.
+- Five concurrency-2 runs produced P50/P95 135.361s/146.894s. Five concurrency-7 runs produced 71.426s/71.819s with the exact same gold-semantic fingerprint and no retries, a 47.23%/51.11% improvement.
+
+## 2026-07-18 pre-merge review hardening
+
+- Read-only review found that retrying one failed domain from an empty extraction could falsely mark a 34-rule review complete. Domain extraction now preserves all successful parallel outputs and failure causes; recovery reruns all seven domains when no usable partial base exists and requires all 92 paths, entity collections, and 34 results before completion.
+- Affected-domain review rebuilt `ManualDecision()` for every result. Re-review now preserves decisions outside the affected domain, invalidates affected prior decisions with an audit event, and resolves only the answered target.
+- SQLite schema v2 adds task revisions and CAS. Task/event writes and completed run/fact/issue persistence are transactional; model awaits recheck revision/archive state so a stale response cannot overwrite an archive.
+- Structured JSON now exports only facts from the current `reviewRunId` with run and document-version provenance.
+- DOCX parsing now follows active OOXML relationships, preserves body content controls, ignores orphan headers/media, and rejects excessive member count, expansion size, compression ratio, or referenced image count.
+- The original generated corpus is retained as a contract suite. Four hand-authored natural document mutations cover complete, missing, unclear, and inconsistent outcomes without internal path/token hints and run through both DOCX and PDF.
+- Natural-case live tests exposed two prompt defects: explicit counts without detail must still create missing/unknown entities, and online transfers must never infer offline cash withdrawals or handoffs. Both boundaries are enforced without relaxing Schema, entity counts, rules, or anchors.
+- Concurrency 7 is accepted as the production default. The fallback candidates 5 and 3 remain available for future capacity changes, but testing them now would add model cost without affecting selection because 7 passed.

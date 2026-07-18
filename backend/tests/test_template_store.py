@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from app.errors import AppError
-from app.models import ReviewMode, ReviewTask
+from app.models import ReviewMode, ReviewStatus, ReviewTask
 from app.services.artifacts import ArtifactStorage
 from app.store import SqliteTaskStore
 
@@ -15,8 +15,8 @@ def test_schema_migration_is_versioned_and_idempotent(tmp_path):
     first = SqliteTaskStore(database)
     second = SqliteTaskStore(database)
 
-    assert first.schema_version() == 1
-    assert second.schema_version() == 1
+    assert first.schema_version() == 2
+    assert second.schema_version() == 2
     with sqlite3.connect(database) as connection:
         tables = {
             row[0]
@@ -33,6 +33,120 @@ def test_schema_migration_is_versioned_and_idempotent(tmp_path):
         "artifacts",
         "schema_migrations",
     } <= tables
+
+
+def test_stale_task_snapshot_cannot_overwrite_newer_archive_state(tmp_path):
+    store = SqliteTaskStore(tmp_path / "reviews.db")
+    task = store.save_task(ReviewTask(mode=ReviewMode.QWEN))
+    stale = store.get_task(task.id)
+    current = store.get_task(task.id)
+    current.reviewStatus = ReviewStatus.ARCHIVED
+    store.save_task(current)
+
+    stale.errorMessage = "late model response"
+    with pytest.raises(AppError) as error:
+        store.save_task(stale)
+
+    assert error.value.code == "task_revision_conflict"
+    assert store.get_task(task.id).reviewStatus.value == "archived"
+
+
+def test_review_run_children_are_rolled_back_when_issue_persistence_fails(tmp_path):
+    store = SqliteTaskStore(tmp_path / "reviews.db")
+    task = store.save_task(ReviewTask(mode=ReviewMode.QWEN))
+    document_id = store.save_document(
+        task.id,
+        filename="测试笔录.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sha256="a" * 64,
+        original_path="task/original/test.docx",
+    )
+    version_id = store.save_document_version(
+        document_id,
+        content_sha256="a" * 64,
+        parsed_payload={"text": "脱敏测试问答"},
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.persist_review_outcome(
+            task,
+            version_id,
+            rule_version="1.0.0",
+            model="Qwen3.6-35B-A3B",
+            timings={},
+            facts={"case.report_reason": {"value": "测试"}},
+            entities={},
+            issues=[("CASE-001", {"status": "covered"}), ("CASE-001", {"status": "covered"})],
+        )
+
+    snapshot = store.get_audit_snapshot(task.id)
+    assert snapshot["runs"] == []
+    assert snapshot["facts"] == []
+    assert snapshot["issues"] == []
+
+
+def test_stale_task_and_manual_event_are_rejected_together(tmp_path):
+    store = SqliteTaskStore(tmp_path / "reviews.db")
+    task = store.save_task(ReviewTask(mode=ReviewMode.QWEN))
+    stale = store.get_task(task.id)
+    current = store.get_task(task.id)
+    current.reviewStatus = ReviewStatus.ARCHIVED
+    store.save_task(current)
+
+    with pytest.raises(AppError) as error:
+        store.save_task_with_events(stale, [{
+            "issue_id": None,
+            "event_type": "resolved",
+            "actor_id": "test-operator",
+            "payload": {"ruleId": "CASE-001"},
+        }])
+
+    assert error.value.code == "task_revision_conflict"
+    assert store.get_audit_snapshot(task.id)["events"] == []
+
+
+def test_review_outcome_atomically_updates_current_task_run_and_children(tmp_path):
+    store = SqliteTaskStore(tmp_path / "reviews.db")
+    task = store.save_task(ReviewTask(mode=ReviewMode.QWEN))
+    document_id = store.save_document(
+        task.id,
+        filename="测试笔录.docx",
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sha256="a" * 64,
+        original_path="task/original/test.docx",
+    )
+    version_id = store.save_document_version(
+        document_id,
+        content_sha256="a" * 64,
+        parsed_payload={"text": "脱敏测试问答"},
+    )
+    task.documentVersionId = version_id
+
+    run_id = store.persist_review_outcome(
+        task,
+        version_id,
+        rule_version="1.0.0",
+        model="Qwen3.6-35B-A3B",
+        timings={"case_timeline": 12},
+        facts={"case.report_reason": {"value": "测试"}},
+        entities={},
+        issues=[("CASE-001", {"status": "covered"})],
+        events=[{
+            "issue_id": None,
+            "event_type": "follow_up_answer",
+            "actor_id": "test-operator",
+            "payload": {"ruleId": "CASE-001"},
+        }],
+    )
+
+    saved = store.get_task(task.id)
+    snapshot = store.get_audit_snapshot(task.id)
+    assert task.reviewRunId == run_id
+    assert saved.reviewRunId == run_id
+    assert snapshot["runs"][0]["status"] == "completed"
+    assert snapshot["facts"][0]["run_id"] == run_id
+    assert snapshot["issues"][0]["run_id"] == run_id
+    assert snapshot["events"][0]["event_type"] == "follow_up_answer"
 
 
 def test_audit_records_survive_a_new_store_instance(tmp_path):
@@ -136,4 +250,3 @@ def test_original_artifact_rejects_path_traversal(tmp_path, filename):
         storage.save_original("task-001", filename, b"content")
 
     assert error.value.code == "invalid_artifact_name"
-

@@ -2,18 +2,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import posixpath
 from pathlib import PurePosixPath
 from zipfile import BadZipFile, ZipFile
 import zlib
 
 from lxml import etree
 
+from app.errors import AppError
 from app.models import DocumentWarning, SourceType
 
 
 WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NAMESPACE}}}"
 NAMESPACES = {"w": WORD_NAMESPACE}
+RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
+OFFICE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+R = f"{{{OFFICE_RELATIONSHIP_NAMESPACE}}}"
+MAX_PACKAGE_MEMBERS = 2048
+MAX_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_MEMBER_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 200
+MAX_IMAGES = 64
 
 
 @dataclass(frozen=True)
@@ -67,7 +77,8 @@ def _body_blocks(document_xml: bytes) -> list[OpenXmlBlock]:
         return []
 
     blocks: list[OpenXmlBlock] = []
-    for child in body:
+
+    def append_child(child: etree._Element) -> None:
         if child.tag == W + "p":
             text = _node_text(child).strip()
             if text:
@@ -81,7 +92,94 @@ def _body_blocks(document_xml: bytes) -> list[OpenXmlBlock]:
                 text = " | ".join(cell for cell in cells if cell)
                 if text:
                     blocks.append(OpenXmlBlock(text=text, source_type=SourceType.TABLE))
+        elif child.tag == W + "sdt":
+            content = child.find("./w:sdtContent", NAMESPACES)
+            if content is not None:
+                for nested in content:
+                    append_child(nested)
+
+    for child in body:
+        append_child(child)
     return blocks
+
+
+def _validate_package(archive: ZipFile) -> None:
+    infos = archive.infolist()
+    if len(infos) > MAX_PACKAGE_MEMBERS:
+        raise AppError("docx_expansion_limit", "DOCX 包含过多压缩包成员，已拒绝解析。", 422)
+    total = 0
+    for info in infos:
+        total += info.file_size
+        if info.file_size > MAX_MEMBER_UNCOMPRESSED_BYTES:
+            raise AppError("docx_expansion_limit", "DOCX 单个部件展开后过大，已拒绝解析。", 422)
+        if (
+            info.file_size >= 1024 * 1024
+            and (info.compress_size == 0 or info.file_size / info.compress_size > MAX_COMPRESSION_RATIO)
+        ):
+            raise AppError("docx_expansion_limit", "DOCX 压缩比异常，已拒绝解析。", 422)
+    if total > MAX_TOTAL_UNCOMPRESSED_BYTES:
+        raise AppError("docx_expansion_limit", "DOCX 展开后总体积过大，已拒绝解析。", 422)
+
+
+def _relationship_part(source_part: str) -> str:
+    directory, filename = posixpath.split(source_part)
+    return posixpath.join(directory, "_rels", filename + ".rels")
+
+
+def _relationships(archive: ZipFile, source_part: str) -> dict[str, tuple[str, str]]:
+    relationship_part = _relationship_part(source_part)
+    if relationship_part not in archive.namelist():
+        return {}
+    root = etree.fromstring(archive.read(relationship_part))
+    relationships: dict[str, tuple[str, str]] = {}
+    for item in root.findall(f"{{{RELATIONSHIP_NAMESPACE}}}Relationship"):
+        if item.get("TargetMode") == "External":
+            continue
+        target = item.get("Target")
+        relationship_id = item.get("Id")
+        relationship_type = item.get("Type")
+        if not target or not relationship_id or not relationship_type:
+            continue
+        if target.startswith("/"):
+            part_name = target.lstrip("/")
+        else:
+            part_name = posixpath.normpath(posixpath.join(posixpath.dirname(source_part), target))
+        if part_name == ".." or part_name.startswith("../"):
+            continue
+        relationships[relationship_id] = (relationship_type, part_name)
+    return relationships
+
+
+def _referenced_parts(
+    archive: ZipFile,
+    document_xml: bytes,
+) -> tuple[list[tuple[str, SourceType]], list[str]]:
+    root = etree.fromstring(document_xml)
+    document_relationships = _relationships(archive, "word/document.xml")
+    stories: list[tuple[str, SourceType]] = []
+    images: list[str] = []
+    story_ids = [
+        (node.get(R + "id"), SourceType.HEADER if node.tag == W + "headerReference" else SourceType.FOOTER)
+        for node in root.findall(".//w:sectPr/w:headerReference", NAMESPACES)
+        + root.findall(".//w:sectPr/w:footerReference", NAMESPACES)
+    ]
+    for relationship_id, source_type in story_ids:
+        relationship = document_relationships.get(relationship_id or "")
+        if relationship is None:
+            continue
+        _, part_name = relationship
+        stories.append((part_name, source_type))
+        story_relationships = _relationships(archive, part_name)
+        story_root = etree.fromstring(archive.read(part_name))
+        for node in story_root.findall(".//*[@r:embed]", {**NAMESPACES, "r": OFFICE_RELATIONSHIP_NAMESPACE}):
+            image_relationship = story_relationships.get(node.get(R + "embed") or "")
+            if image_relationship is not None and image_relationship[0].endswith("/image"):
+                images.append(image_relationship[1])
+    for node in root.findall(".//*[@r:embed]", {**NAMESPACES, "r": OFFICE_RELATIONSHIP_NAMESPACE}):
+        relationship = document_relationships.get(node.get(R + "embed") or "")
+        if relationship is not None and relationship[0].endswith("/image"):
+            images.append(relationship[1])
+    return stories, list(dict.fromkeys(images))
 
 
 def _story_blocks(part_xml: bytes, source_type: SourceType) -> list[OpenXmlBlock]:
@@ -116,23 +214,26 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
     images: list[OpenXmlImage] = []
 
     with ZipFile(BytesIO(content)) as archive:
+        _validate_package(archive)
         document_xml = archive.read("word/document.xml")
-        names = archive.namelist()
+        story_parts, image_parts = _referenced_parts(archive, document_xml)
         header_blocks = [
             block
-            for part_name in sorted(name for name in names if name.startswith("word/header") and name.endswith(".xml"))
+            for part_name, source_type in story_parts
+            if source_type == SourceType.HEADER
             for block in _optional_story(archive, part_name, SourceType.HEADER, warnings)
         ]
         footer_blocks = [
             block
-            for part_name in sorted(name for name in names if name.startswith("word/footer") and name.endswith(".xml"))
+            for part_name, source_type in story_parts
+            if source_type == SourceType.FOOTER
             for block in _optional_story(archive, part_name, SourceType.FOOTER, warnings)
         ]
         blocks = [*header_blocks, *_body_blocks(document_xml), *footer_blocks]
 
-        for part_name in names:
-            if not part_name.startswith("word/media/"):
-                continue
+        if len(image_parts) > MAX_IMAGES:
+            raise AppError("docx_expansion_limit", "DOCX 引用图片数量过多，已拒绝解析。", 422)
+        for part_name in image_parts:
             suffix = PurePosixPath(part_name).suffix.lower()
             media_type = MEDIA_TYPES.get(suffix)
             if media_type is None:

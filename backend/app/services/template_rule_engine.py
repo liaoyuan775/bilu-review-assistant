@@ -31,6 +31,18 @@ def _is_clear(fact: ExtractedFact | None) -> bool:
     return _has_value(fact) and fact.clarity == "clear"
 
 
+def _boolean_value(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "是", "有", "已发生", "已确认"} or normalized.startswith(("是，", "是,", "是。")):
+            return True
+        if normalized in {"false", "no", "否", "无", "未发生", "未确认"} or normalized.startswith(("否，", "否,", "否。")):
+            return False
+    return None
+
+
 def _condition_result(extraction: CaseExtraction, rule: TemplateRule) -> tuple[bool | None, list[str]]:
     condition = rule.appliesWhen
     if condition is None:
@@ -43,10 +55,19 @@ def _condition_result(extraction: CaseExtraction, rule: TemplateRule) -> tuple[b
     if condition.operator == "exists":
         return _has_value(fact), anchors
     if condition.operator == "truthy":
-        return bool(value), anchors
+        boolean = _boolean_value(value)
+        return (boolean if boolean is not None else bool(value)), anchors
     if condition.operator == "equals":
+        if isinstance(condition.value, bool):
+            boolean = _boolean_value(value)
+            if boolean is not None:
+                return boolean == condition.value, anchors
         return value == condition.value, anchors
     if condition.operator == "not_equals":
+        if isinstance(condition.value, bool):
+            boolean = _boolean_value(value)
+            if boolean is not None:
+                return boolean != condition.value, anchors
         return value != condition.value, anchors
     if condition.operator == "in":
         return value in condition.value, anchors

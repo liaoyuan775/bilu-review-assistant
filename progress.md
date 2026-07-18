@@ -46,6 +46,31 @@
 - Re-rendered the final eight-page review PDF with embedded Microsoft YaHei and visually inspected every page; Chinese labels, evidence wrapping, page numbers, and the operation-record page have no clipping, overlap, or missing glyphs.
 - Restarted the backend, generated the latest A4 follow-up DOCX through the live API, exported it with Microsoft Word, and visually verified the rendered page including Chinese status labels and dynamic PAGE/NUMPAGES fields.
 - Task 9 complete: full backend returned 103 passed / 1 optional actual-template skip, frontend returned 41 passed, production build succeeded, OpenAPI was regenerated, and `git diff --check` was clean before the phase commit.
+- Task 10 resumed from a live-model failure. Confirmed no stale verifier process, preserved five valid three-run case reports, and traced `gold-06` to one 240-second model read timeout followed by two strict-schema failures in the `offline_delivery` domain.
+- Reproduced `gold-06` in isolation and found all retries repeated a duplicate entity ID because correction feedback was null. Added two failing tests, implemented explicit global-unique-ID instructions, and verified the extraction/rule/performance regression set with 24 passed.
+- The next single live `gold-06` run reached six metrics at 100%, but its formal three-run gate exposed a stable entity-recall gap: 94.12% applicability/issue/required recall with `CASH-003` and `OFFLINE-001` inconsistent in all runs because their repeat-entity arrays were empty.
+- Added a failing prompt-contract test for domain entity arrays, then dynamically injected entity types, required fields, single-occurrence creation, and evidence-free empty-array rules. The new test passed and the related regression set returned 25 passed.
+- Entity-aware live diagnostic reached 100% with one withdrawal and one handoff, but the next three-run report scored 91.18% on unrelated timeline facts. Traced the cross-process variability to paragraph IDs based on raw DOCX bytes rather than normalized visible structure.
+- Added a RED/GREEN parser regression for identical visible DOCX text with different core metadata. Anchors now use normalized document structure; 37 related tests passed with 1 optional skip, and independently generated gold files produced identical anchor lists and prompt hashes.
+- Stable-anchor `gold-06` passed its final three-run live gate with all six metrics at 100%, zero mismatches, and zero sensitive findings.
+- `gold-07` passed three live runs. The isolated-case loop stopped at `gold-08` after two 240-second targeted-recheck timeouts around one invalid-anchor response; the same domain completed alone in 55 seconds, identifying targeted recheck concurrency as the reliability boundary.
+- A RED/GREEN serial-recheck experiment passed 38 related tests but the live `gold-08` rerun reproduced the identical failure sequence. Concurrency is ruled out; next fix is a domain-filtered focus-only prompt and Schema, and the serial experiment will be removed.
+- Replaced the advisory-only recheck with domain-filtered focus paths and focus-only Schema/validation, removed the serial experiment, and passed 40 related tests with 1 optional skip. The exact failing live contact recheck then completed in 11.5 seconds without retry.
+- `gold-08` completed three runs after the focus fix, but log inspection found an entity drift hidden by the verifier's status-only stability check. The report is rejected pending a test-backed connection to the full semantic fingerprint.
+- Connected the live verifier to the full semantic fingerprint and added entity applicability/count validation. Related tests passed, and `gold-08` then passed three full-fingerprint live runs at six metrics of 100%.
+- Added field-path-only semantic drift diagnostics and gold-equivalent value canonicalization; `gold-09`, `gold-10`, `gold-11`, and `gold-12` each passed their current-code three-run live gates at all six metrics of 100%.
+- Offline Task 10 verification regenerated 12 DOCX/PDF pairs and 136 rule mutations; all ten offline metrics were 100% with zero prohibited identity, phone, card, URL, or public-IP shapes.
+- Added a benchmark that records per-stage/total P50/P95, request count, token usage, and a gold-semantic quality fingerprint; every timed sample must pass facts, entities, rules, and evidence before it is included.
+- Formal five-run baseline at domain concurrency 2 produced total P50 135.361s and P95 146.894s. Five-run concurrency 7 produced P50 71.426s and P95 71.819s with the identical quality fingerprint, improving 47.23% and 51.11%.
+- Accepted concurrency 7 as the production default. It completed 35/35 requests with zero retry or timeout; concurrency 5 and 3 were not tested because the user requested the highest passing candidate.
+- Rewrote the README and technical guide to replace the stale seven-rule/three-present-four-flow, non-persistent, and unverified-model descriptions with the template-driven lifecycle and current boundaries.
+- Fresh pre-final regression returned backend 134 passed / 1 optional actual-template skip, frontend 12 files / 44 tests passed, production build 1755 modules, and a refreshed OpenAPI snapshot.
+- Pre-merge review blocked landing on false completion after failed-domain retry, cross-domain manual-decision loss, stale lifecycle writes, circular gold evidence, hidden OOXML parts, mixed-run report facts, and unbounded DOCX expansion. Added RED/GREEN coverage and fixed each path without weakening extraction or archive gates.
+- SQLite schema v2 now uses revision/CAS; task plus event writes and run/fact/issue completion are transactional. A model response that returns after archive can no longer restore an editable snapshot.
+- Failed parallel extraction now carries successful domains and per-domain root diagnostics. Recovery with no partial base reruns all seven domains and requires 92 facts, all entity collections, and 34 rule results before completion.
+- Added four static hand-authored natural document mutations and real DOCX/PDF execution. The natural corpus found and fixed missing repeated entities for known counts and online/offline money-domain leakage.
+- Fresh regression after review hardening: backend 151 passed / 1 optional actual-template skip, frontend 45 passed, production build 1755 modules, OpenAPI regenerated, and `git diff --check` clean.
+- Final combined live gate completed the first 20-document round (12 contract DOCX plus four natural cases in DOCX/PDF) with zero failed domains. The user explicitly waived rounds 2 and 3 and directed the workflow to proceed, so the still-running repeated requests were terminated without treating an absent three-run aggregate as evidence.
 
 ## Verification Log
 
@@ -96,6 +121,15 @@
 | Task 9 final DOCX visual QA | live API -> Word PDF export -> Poppler PNG | A4, 1/1 page; Chinese labels and dynamic footer verified |
 | Task 9 full backend | `backend\.venv\Scripts\python.exe -m pytest -q backend\tests` | 103 passed, 1 optional actual-template test skipped |
 | Task 9 OpenAPI export | `backend\.venv\Scripts\python.exe backend\scripts\export_openapi.py` | `docs/openapi.json` updated |
+| Task 10 offline quality | `verify_template_quality.py --offline` | 32 documents: 24 contract + 8 natural, 136 mutations, all ten metrics 100%, zero sensitive findings |
+| Task 10 isolated live completion | cases `gold-09` through `gold-12`, three runs each | all six metrics 100%, zero mismatches/drift paths/sensitive findings |
+| Task 10 natural live coverage | four hand-authored complete/missing/unclear/inconsistent cases, DOCX/PDF | isolated cases calibrated; combined first round completed all 20 documents with zero failed domains; repeated rounds waived by user |
+| Task 11 concurrency 2 baseline | `benchmark_template_review.py --runs 5 --domain-concurrency 2` | P50 135.361s, P95 146.894s, quality passed |
+| Task 11 concurrency 7 candidate | `benchmark_template_review.py --runs 5 --domain-concurrency 7 --baseline ...` | identical quality; P50 -47.23%, P95 -51.11%; accepted |
+| Pre-final backend regression | `backend\.venv\Scripts\python.exe -m pytest -q backend\tests` | 151 passed, 1 optional actual-template skip |
+| Pre-final frontend regression | `npm --prefix frontend run test` | 13 files / 45 tests passed |
+| Pre-final production build | `npm --prefix frontend run build` | 1755 modules transformed, exit 0 |
+| Pre-final OpenAPI export | `backend\.venv\Scripts\python.exe backend\scripts\export_openapi.py` | `docs/openapi.json` updated |
 
 ## Error Log
 

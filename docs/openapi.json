@@ -1599,6 +1599,12 @@
             "type": "string",
             "title": "Id"
           },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
           "mode": {
             "$ref": "#/components/schemas/ReviewMode"
           },

@@ -60,6 +60,7 @@ import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
 import { canCompleteReview, nextPendingRuleId, pendingDecisionCount } from "./reviewState";
 import { formatModelReviewDuration } from "./reviewTiming";
 import { groupRules } from "./ruleGroups";
+import { displayFactLabel, displayGroupLabel, displayRuleScope } from "./ruleLabels";
 import { toggleSelectedRuleId } from "./resultSelection";
 import type { DemoSummary, ManualStatus, ReportData, ReviewResult, ReviewSummary, ReviewTask, RuleStatus, RuleSummary, TaskStatus, VictimProfile } from "./types";
 import { getVictimAvatarVariant, getVictimInitial } from "./victimProfile";
@@ -68,6 +69,8 @@ import { TemplateReviewView } from "./TemplateReviewView";
 import { actionableStatuses, countTemplateStatuses } from "./templateReviewState";
 
 // ── 常量映射表 ──────────────────────────────────────────────────
+
+export const NEW_REVIEW_DESCRIPTION = "上传规范电子笔录，系统将依据内部询问笔录模板检查提问遗漏与回答不完整事项。";
 
 /** 规则状态 → UI 元信息（标签、CSS 类名、图标）。 */
 const statusMeta: Record<RuleStatus, { label: string; className: string; icon: typeof CheckCircle2 }> = {
@@ -510,7 +513,7 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
         <div>
           <span className="section-kicker">单份笔录复盘</span>
           <h1>新建审查</h1>
-          <p>上传规范电子笔录，系统将依据演示规则检查提问遗漏与回答不完整事项。</p>
+          <p>{NEW_REVIEW_DESCRIPTION}</p>
         </div>
         <div className="mode-area">
           <span>文件审查引擎</span>
@@ -988,24 +991,24 @@ function RulesView({ rules }: { rules: RuleSummary[] }) {
       <header>
         <span className="section-kicker">当前生效工作口径</span>
         <h1>规则管理</h1>
-        <p>本页用于核对当前七条规则。规则修改需经过业务确认和版本发布，当前仅支持查看。</p>
+        <p>本页用于核对当前生效的模板规则。规则修改需经过业务确认和版本发布，当前仅支持查看。</p>
       </header>
       <div className="rules-groups">
         {groups.map((group) => (
           <section className="rules-group" key={group.name}>
-            <div className="rules-group-heading"><strong>{group.name}</strong><span>{group.rules.length} 条</span></div>
+            <div className="rules-group-heading"><strong>{displayGroupLabel(group.name)}</strong><span>{group.rules.length} 条</span></div>
             <div className="rules-list">
               {group.rules.map((rule) => (
                 <article className="rule-item" key={rule.id}>
                   <div className="rule-item-heading">
                     <code>{rule.id}</code><strong>{rule.name}</strong>
-                    <span>{rule.scope === "base" ? "基础规则" : "条件规则"}</span>
+                    <span>{displayRuleScope(rule.scope)}</span>
                   </div>
                   <div className="rule-item-facts">
                     <small>必查事实</small>
-                    <div>{rule.requiredFacts.map((fact) => <em key={fact}>{fact}</em>)}</div>
+                    <div>{rule.requiredFacts.map((fact) => <em key={fact}>{displayFactLabel(fact)}</em>)}</div>
                   </div>
-                  <footer><span>分类：{rule.category}</span><span>来源：{rule.source}</span></footer>
+                  <footer><span>分组：{displayGroupLabel(rule.category)}</span><span>来源：{rule.source}</span></footer>
                 </article>
               ))}
             </div>

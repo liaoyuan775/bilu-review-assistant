@@ -50,9 +50,11 @@ def test_generate_seven_formal_fictional_records(tmp_path):
         assert "案件编号" in text
         assert "权利义务告知" in text
         assert "被询问人签名" in text
-        assert re.search(r"(?<!\d)1\d{16}[0-9X](?!\d)", text)
-        assert re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
-        assert re.search(r"(?<!\d)6222\d{15}(?!\d)", text)
+        assert not re.search(r"(?<!\d)1\d{16}[0-9X](?!\d)", text)
+        assert not re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", text)
+        assert not re.search(r"(?<!\d)(?:62\d{14,17}|[3-6]\d{15})(?!\d)", text)
+        assert not re.search(r"https?://", text, re.IGNORECASE)
+        assert not re.search(r"(?<!\d)(?:(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.){3}(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])(?!\d)", text)
         assert re.search(r"(?:流水号|交易单号)[:：][A-Z0-9-]{8,}", text)
         assert not any(token in text for token in ["待补充", "XXX", "____", "不详"])
         assert all(label in text for label in REQUIRED_IDENTITY_LABELS)
@@ -80,15 +82,15 @@ def test_answers_do_not_repeat_the_answer_prefix(tmp_path):
         assert "答：答：" not in _document_text(path), path.name
 
 
-def test_each_record_contains_scenario_specific_mock_accounts(tmp_path):
+def test_each_record_contains_scenario_specific_safe_namespaces(tmp_path):
     generated = generate_test_records(tmp_path)
     texts = {path.name: _document_text(path) for path in generated}
 
-    assert "wx_test_20260716_a" in texts[EXPECTED_FILES[0]]
-    assert "qq_test_20260716_b" in texts[EXPECTED_FILES[1]]
-    assert "app_test_20260716_c" in texts[EXPECTED_FILES[2]]
-    assert "198.51.100.23" in texts[EXPECTED_FILES[2]]
-    assert "https://download.example.test/app/case003" in texts[EXPECTED_FILES[2]]
+    assert "ACCOUNT_WX_CASE_01" in texts[EXPECTED_FILES[0]]
+    assert "ACCOUNT_QQ_CASE_02" in texts[EXPECTED_FILES[1]]
+    assert "ACCOUNT_APP_CASE_03" in texts[EXPECTED_FILES[2]]
+    assert "IP_TEST_CASE_03" in texts[EXPECTED_FILES[2]]
+    assert "URL_TEST_CASE_03" in texts[EXPECTED_FILES[2]]
 
 
 def test_corpus_covers_high_value_telecom_fraud_edges(tmp_path):

@@ -22,6 +22,7 @@ import {
 import { artifactDownloadUrl } from "./api";
 import { DocumentEvidencePane } from "./DocumentEvidencePane";
 import { FollowUpPanel } from "./FollowUpPanel";
+import { displayFactLabel, displayGroupLabel } from "./ruleLabels";
 import {
   actionableStatuses,
   archiveBlockers,
@@ -39,24 +40,6 @@ const statusMeta: Record<RuleStatus, { label: string; className: string; icon: t
   inconsistent: { label: "事实矛盾", className: "inconsistent", icon: TriangleAlert },
   not_applicable: { label: "不适用", className: "not-applicable", icon: CircleSlash2 },
   needs_manual_review: { label: "待人工判断", className: "manual-review", icon: ShieldAlert },
-};
-
-const groupLabels: Record<string, string> = {
-  META: "笔录与人员信息",
-  PROC: "程序告知与确认",
-  CASE: "报案与诈骗经过",
-  PREV: "反诈宣传",
-  RISK: "风险提示与处置",
-  CASH: "取款与预约",
-  TIME: "时间地点",
-  PRIV: "个人信息泄露",
-  LEAD: "首次引流",
-  MOTIVE: "持续联系原因",
-  CONTACT: "联系人与渠道切换",
-  MONEY: "线上资金",
-  OFFLINE: "线下交付",
-  EXTRA: "补充事实",
-  EVID: "证据留存",
 };
 
 interface TemplateReviewViewProps {
@@ -222,7 +205,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
           <div className="template-group-list">
             {groups.map((group) => (
               <section className="template-group" key={group.name}>
-                <header><span>{group.name}</span><strong>{groupLabels[group.name] ?? group.name}</strong><em>{group.results.length}</em></header>
+                <header><span>{group.name}</span><strong>{displayGroupLabel(group.name)}</strong><em>{group.results.length}</em></header>
                 {group.results.map((item) => {
                   const meta = statusMeta[item.status];
                   const Icon = meta.icon;
@@ -239,7 +222,7 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
                     {expanded && (
                       <div className="template-issue-detail">
                         <p>{item.reason}</p>
-                        {item.missingFacts.length > 0 && <div className="missing-fields">{item.missingFacts.map((field) => <span key={field}>{field}</span>)}</div>}
+                        {item.missingFacts.length > 0 && <div className="missing-fields">{item.missingFacts.map((field) => <span key={field}>{displayFactLabel(field)}</span>)}</div>}
                         <div className="evidence-quote"><strong>证据原文</strong><p>{item.evidence}</p></div>
                         {item.suggestedQuestion && <div className="suggested-question"><strong>建议补问</strong><p>{item.suggestedQuestion}</p></div>}
                         {!readOnly && actionable && (

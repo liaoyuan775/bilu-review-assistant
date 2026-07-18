@@ -64,6 +64,22 @@ def test_false_conditional_path_is_not_applicable():
     assert issue.anchorIds == ["a1"]
 
 
+def test_boolean_condition_accepts_explicit_chinese_affirmative_answer():
+    issue = evaluate_template_rules(
+        CaseExtraction(facts={
+            "offline.used": _fact("是，已明确发生或确认", "clear", "a1"),
+            "offline.delivery_method": _fact("线下交付", "clear", "a2"),
+        }),
+        [_rule(
+            "offline.delivery_method",
+            scope="conditional",
+            condition=RuleCondition(path="offline.used", operator="equals", value=True),
+        )],
+    )[0]
+
+    assert issue.status == RuleStatus.COVERED
+
+
 def test_unknown_answer_is_incomplete_not_missing():
     issue = evaluate_template_rules(
         CaseExtraction(facts={"money.total": _fact(None, "unknown", "a1")}),

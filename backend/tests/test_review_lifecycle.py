@@ -24,8 +24,13 @@ from app.models import (
     TaskStatus,
 )
 from app.services.archive import assert_archive_ready
-from app.services import review
-from app.services.template_extraction import TemplateReviewOutcome
+from app.services import review, template_extraction
+from app.services.template_extraction import (
+    DOMAIN_ENTITY_FIELDS,
+    DOMAIN_FACT_PATHS,
+    DOMAIN_ORDER,
+    TemplateReviewOutcome,
+)
 from app.services.artifacts import ArtifactStorage
 from app.services import artifacts
 from app import store
@@ -75,6 +80,21 @@ def _task() -> ReviewTask:
             ArtifactSummary(id=f"artifact-{kind}", type=kind, filename=f"{kind}.bin", sha256="a" * 64, sizeBytes=10)
             for kind in REQUIRED_ARTIFACTS
         ],
+    )
+
+
+def _complete_extraction() -> CaseExtraction:
+    return CaseExtraction(
+        facts={
+            path: ExtractedFact(value=None, clarity="missing", evidenceAnchorIds=[])
+            for domain in DOMAIN_ORDER
+            for path in DOMAIN_FACT_PATHS[domain]
+        },
+        entities={
+            entity_type: []
+            for domain in DOMAIN_ORDER
+            for entity_type in DOMAIN_ENTITY_FIELDS[domain]
+        },
     )
 
 
@@ -205,6 +225,114 @@ def test_follow_up_answer_creates_version_event_and_affected_domain_rerun(tmp_pa
     assert snapshot["events"][-1]["event_type"] == "follow_up_answer"
 
 
+def test_follow_up_preserves_manual_decisions_from_unaffected_domains(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.results.extend([
+        task.results[0].model_copy(update={
+            "ruleId": "CASE-002",
+            "manualDecision": ManualDecision(
+                status=ManualStatus.CONFIRMED,
+                reason="原时间线问题已确认。",
+            ),
+        }),
+        task.results[0].model_copy(update={
+            "ruleId": "CONTACT-001",
+            "group": "CONTACT",
+            "category": "CONTACT",
+            "manualDecision": ManualDecision(
+                status=ManualStatus.IGNORED,
+                reason="已人工核对联系方式。",
+            ),
+        }),
+    ])
+    task.extractionPayload = _complete_extraction().model_dump(mode="json")
+    store.save_task(task)
+    task.documentId = store.STORE.save_document(
+        task.id,
+        filename=task.document.name,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sha256="a" * 64,
+        original_path="test/original.docx",
+    )
+    task.documentVersionId = store.STORE.save_document_version(
+        task.documentId,
+        content_sha256="a" * 64,
+        parsed_payload=task.document.model_dump(mode="json"),
+    )
+    store.save_task(task)
+    refreshed = [
+        item.model_copy(update={"manualDecision": ManualDecision()})
+        for item in task.results
+    ]
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(return_value=TemplateReviewOutcome(
+        extraction=_complete_extraction(),
+        issues=[],
+        results=refreshed,
+    )))
+
+    updated = asyncio.run(review.record_follow_up_answer(
+        task.id,
+        "CASE-001",
+        question="你因何事报案？",
+        answer="因测试诈骗损失报案。",
+        actor_id="test-operator",
+    ))
+
+    decisions = {item.ruleId: item.manualDecision for item in updated.results}
+    assert decisions["CASE-001"].status == ManualStatus.RESOLVED
+    assert decisions["CASE-002"].status == ManualStatus.PENDING
+    assert decisions["CONTACT-001"].status == ManualStatus.IGNORED
+    assert decisions["CONTACT-001"].reason == "已人工核对联系方式。"
+    events = store.STORE.get_audit_snapshot(task.id)["events"]
+    invalidated = next(event for event in events if event["event_type"] == "decisions_invalidated")
+    assert invalidated["payload"]["ruleIds"] == ["CASE-002"]
+
+
+def test_follow_up_cannot_overwrite_archive_completed_while_model_was_running(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.extractionPayload = _complete_extraction().model_dump(mode="json")
+    store.save_task(task)
+    task.documentId = store.STORE.save_document(
+        task.id,
+        filename=task.document.name,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sha256="a" * 64,
+        original_path="test/original.docx",
+    )
+    task.documentVersionId = store.STORE.save_document_version(
+        task.documentId,
+        content_sha256="a" * 64,
+        parsed_payload=task.document.model_dump(mode="json"),
+    )
+    store.save_task(task)
+
+    async def archive_during_review(*_args, **_kwargs):
+        current = store.get_task(task.id)
+        current.reviewStatus = ReviewStatus.ARCHIVED
+        store.save_task(current)
+        return TemplateReviewOutcome(
+            extraction=_complete_extraction(),
+            issues=[],
+            results=task.results,
+        )
+
+    monkeypatch.setattr(review, "run_template_review", archive_during_review)
+
+    with pytest.raises(AppError) as error:
+        asyncio.run(review.record_follow_up_answer(
+            task.id,
+            "CASE-001",
+            question="你因何事报案？",
+            answer="因测试诈骗损失报案。",
+            actor_id="test-operator",
+        ))
+
+    assert error.value.code == "task_revision_conflict"
+    assert store.get_task(task.id).reviewStatus == ReviewStatus.ARCHIVED
+
+
 def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
     database = tmp_path / "reviews.db"
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(database))
@@ -213,10 +341,14 @@ def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
     task.failedDomains = ["case_timeline"]
     task.extractionPayload = CaseExtraction().model_dump(mode="json")
     store.save_task(task)
+    complete = _complete_extraction()
     outcome = TemplateReviewOutcome(
-        extraction=CaseExtraction(),
+        extraction=complete,
         issues=[],
-        results=task.results,
+        results=[
+            task.results[0].model_copy(update={"ruleId": f"RULE-{index:03d}"})
+            for index in range(34)
+        ],
     )
     run = AsyncMock(return_value=outcome)
     monkeypatch.setattr(review, "run_template_review", run)
@@ -225,8 +357,32 @@ def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
 
     assert updated.status == TaskStatus.COMPLETED
     assert updated.failedDomains == []
-    assert run.await_args.kwargs["domains"] == ("case_timeline",)
+    assert run.await_args.kwargs["domains"] == DOMAIN_ORDER
+    assert len(updated.extractionPayload["facts"]) == 92
+    assert len(updated.results) == 34
     assert store.STORE.get_audit_snapshot(task.id)["events"][-1]["event_type"] == "domain_retried"
+
+
+def test_failed_domain_retry_stays_failed_when_required_coverage_is_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.status = TaskStatus.FAILED
+    task.failedDomains = ["case_timeline"]
+    task.extractionPayload = CaseExtraction().model_dump(mode="json")
+    store.save_task(task)
+    incomplete = _complete_extraction()
+    incomplete.facts.pop(DOMAIN_FACT_PATHS["case_timeline"][0])
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(return_value=TemplateReviewOutcome(
+        extraction=incomplete,
+        issues=[],
+        results=[],
+    )))
+
+    updated = asyncio.run(review.retry_failed_domain(task.id, "case_timeline", "test-operator"))
+
+    assert updated.status == TaskStatus.FAILED
+    assert updated.failedDomains == ["case_timeline"]
+    assert updated.results == []
 
 
 def test_upload_persists_original_version_run_fact_issue_and_artifact(tmp_path, monkeypatch):
@@ -272,6 +428,33 @@ def test_upload_persists_original_version_run_fact_issue_and_artifact(tmp_path, 
     assert snapshot["facts"][0]["path"] == "case.report_reason"
     assert snapshot["issues"][0]["rule_id"] == "CASE-001"
     assert snapshot["artifacts"][0]["artifact_type"] == "original"
+
+
+def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
+    task = review.create_task(ReviewMode.QWEN)
+    document = Document()
+    document.add_paragraph("问：你因何事报案？")
+    document.add_paragraph("答：因脱敏测试诈骗报案。")
+    output = BytesIO()
+    document.save(output)
+    partial = _complete_extraction()
+    for path in DOMAIN_FACT_PATHS["contact_channels"]:
+        partial.facts.pop(path)
+    for entity_type in DOMAIN_ENTITY_FIELDS["contact_channels"]:
+        partial.entities.pop(entity_type)
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=template_extraction.TemplateDomainFailure(
+        partial_extraction=partial,
+        failed_domains=["contact_channels"],
+    )))
+
+    asyncio.run(review.process_upload(task.id, "脱敏测试.docx", output.getvalue()))
+
+    saved = store.get_task(task.id)
+    assert saved.status == TaskStatus.FAILED
+    assert saved.failedDomains == ["contact_channels"]
+    assert set(saved.extractionPayload["facts"]) == set(partial.facts)
 
 
 def test_openapi_exposes_complete_review_lifecycle_routes():

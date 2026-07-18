@@ -612,7 +612,7 @@ async def request_structured_payload(
     try:
         message = await _post_completion(client, {
             "model": QWEN_MODEL,
-            "temperature": 0.1,
+            "temperature": 0,
             "messages": messages,
             "response_format": {
                 "type": "json_schema",
@@ -646,7 +646,7 @@ async def request_structured_payload(
 
     message = await _post_completion(client, {
         "model": QWEN_MODEL,
-        "temperature": 0.1,
+        "temperature": 0,
         "messages": messages,
         "tools": [{
             "type": "function",
