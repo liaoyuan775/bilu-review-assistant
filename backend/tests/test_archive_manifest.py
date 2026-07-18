@@ -2,11 +2,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app import store
+from app.storage import store
 from app.main import app
-from app.services import artifacts
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.storage import artifacts
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)

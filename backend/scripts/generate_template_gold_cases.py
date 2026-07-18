@@ -22,10 +22,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.data import TEMPLATE_RULE_CATALOG  # noqa: E402
-from app.services.template_extraction import DOMAIN_ENTITY_FIELDS, DOMAIN_FACT_PATHS  # noqa: E402
-from app.services.template_rule_engine import evaluate_template_rules  # noqa: E402
-from app.template_models import CaseExtraction, ExtractedEntity, ExtractedFact  # noqa: E402
+from app.data.rules import TEMPLATE_RULE_CATALOG  # noqa: E402
+from app.review.extraction import DOMAIN_ENTITY_FIELDS, DOMAIN_FACT_PATHS  # noqa: E402
+from app.review.rules import evaluate_template_rules  # noqa: E402
+from app.core.template_models import CaseExtraction, ExtractedEntity, ExtractedFact  # noqa: E402
 
 
 PROHIBITED_SENSITIVE_PATTERNS = {

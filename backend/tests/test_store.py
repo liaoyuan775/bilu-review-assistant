@@ -1,7 +1,7 @@
 import sqlite3
 
-from app.models import ReviewMode, ReviewTask
-from app.store import SqliteTaskStore
+from app.core.models import ReviewMode, ReviewTask
+from app.storage.store import SqliteTaskStore
 
 
 def test_sqlite_store_survives_new_store_instance(tmp_path):

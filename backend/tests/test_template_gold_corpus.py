@@ -3,9 +3,9 @@ from pathlib import Path
 import re
 from types import SimpleNamespace
 
-from app.data import TEMPLATE_RULE_CATALOG
-from app.models import RuleStatus
-from app.template_models import CaseExtraction, ExtractedEntity
+from app.data.rules import TEMPLATE_RULE_CATALOG
+from app.core.models import RuleStatus
+from app.core.template_models import CaseExtraction, ExtractedEntity
 from scripts import verify_template_quality
 from scripts.generate_template_gold_cases import (
     PROHIBITED_SENSITIVE_PATTERNS,

@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from docx import Document
 
-from app.errors import AppError
-from app.models import (
+from app.core.errors import AppError
+from app.core.models import (
     ArtifactSummary,
     DocumentPage,
     DocumentParagraph,
@@ -23,19 +23,19 @@ from app.models import (
     SourceType,
     TaskStatus,
 )
-from app.services.archive import assert_archive_ready
-from app.services import review, template_extraction
-from app.services.template_extraction import (
+from app.reporting.archive import assert_archive_ready
+from app.review import review, extraction
+from app.review.extraction import (
     DOMAIN_ENTITY_FIELDS,
     DOMAIN_FACT_PATHS,
     DOMAIN_ORDER,
     TemplateReviewOutcome,
 )
-from app.services.artifacts import ArtifactStorage
-from app.services import artifacts
-from app import store
-from app.store import SqliteTaskStore
-from app.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
+from app.storage.artifacts import ArtifactStorage
+from app.storage import artifacts
+from app.storage import store
+from app.storage.store import SqliteTaskStore
+from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
 from app.main import app
 
 
@@ -444,7 +444,7 @@ def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monk
         partial.facts.pop(path)
     for entity_type in DOMAIN_ENTITY_FIELDS["contact_channels"]:
         partial.entities.pop(entity_type)
-    monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=template_extraction.TemplateDomainFailure(
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=extraction.TemplateDomainFailure(
         partial_extraction=partial,
         failed_domains=["contact_channels"],
     )))

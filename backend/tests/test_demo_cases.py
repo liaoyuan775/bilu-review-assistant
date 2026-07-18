@@ -3,16 +3,16 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app import store
-from app.data import TEMPLATE_RULE_CATALOG
-from app.demo_cases import DEMO_CASES, get_demo_case, load_demo_document
+from app.storage import store
+from app.data.rules import TEMPLATE_RULE_CATALOG
+from app.data.demo_cases import DEMO_CASES, get_demo_case, load_demo_document
 from app.main import app
-from app.models import ManualDecision, ReviewResult, RuleStatus
-from app.services import artifacts
-from app.services.artifacts import ArtifactStorage
-from app.services.template_extraction import TemplateReviewOutcome
-from app.store import SqliteTaskStore
-from app.template_models import CaseExtraction
+from app.core.models import ManualDecision, ReviewResult, RuleStatus
+from app.storage import artifacts
+from app.storage.artifacts import ArtifactStorage
+from app.review.extraction import TemplateReviewOutcome
+from app.storage.store import SqliteTaskStore
+from app.core.template_models import CaseExtraction
 
 
 client = TestClient(app)
@@ -61,7 +61,7 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
     monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
 
-    with patch("app.services.review.run_template_review", new=AsyncMock(side_effect=AssertionError("Qwen must not be called"))):
+    with patch("app.review.review.run_template_review", new=AsyncMock(side_effect=AssertionError("Qwen must not be called"))):
         created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
 
     assert created.status_code == 202
@@ -90,7 +90,7 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
         json={"status": "supplemented", "reason": incomplete[0]["suggestedQuestion"], "actorId": "test-operator"},
     )
     assert action.status_code == 200
-    with patch("app.services.review.run_template_review", new=AsyncMock(side_effect=AssertionError("mock follow-up must not call Qwen"))):
+    with patch("app.review.review.run_template_review", new=AsyncMock(side_effect=AssertionError("mock follow-up must not call Qwen"))):
         follow_up = client.post(
             f"/api/v1/reviews/{task['id']}/issues/RISK-001/follow-up-answer",
             json={
@@ -136,7 +136,7 @@ def test_case_02_uses_qwen_review(tmp_path, monkeypatch):
         results=fixture_results,
     )
 
-    with patch("app.services.review.run_template_review", new=AsyncMock(return_value=outcome)) as review:
+    with patch("app.review.review.run_template_review", new=AsyncMock(return_value=outcome)) as review:
         created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={"mode": "local"})
 
     assert created.status_code == 202

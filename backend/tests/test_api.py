@@ -11,17 +11,18 @@ from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 import pytest
 
-from app.errors import AppError
+from app.core.errors import AppError
 from app.main import app
-from app.data import RULES, TEMPLATE_RULES
-from app.demo_cases import DEMO_CASES, load_demo_document
-from app.services import artifacts, qwen
-from app.services.artifacts import ArtifactStorage
-from app.services.template_extraction import TemplateReviewOutcome
-from app.template_models import CaseExtraction
-from app.services.analyzer import analyze_document
-from app import store
-from app.store import SqliteTaskStore
+from app.data.rules import RULES, TEMPLATE_RULES
+from app.data.demo_cases import DEMO_CASES, load_demo_document
+from app.storage import artifacts
+from app.llm import qwen
+from app.storage.artifacts import ArtifactStorage
+from app.review.extraction import TemplateReviewOutcome
+from app.core.template_models import CaseExtraction
+from app.reporting.analyzer import analyze_document
+from app.storage import store
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)
@@ -131,7 +132,7 @@ def _upload(filename: str, content: bytes):
             results=analyze_document(document),
         )
 
-    with patch("app.services.review.run_template_review", side_effect=fixture_review):
+    with patch("app.review.review.run_template_review", side_effect=fixture_review):
         created = client.post(
             "/api/v1/reviews",
             data={"mode": "local"},
@@ -250,7 +251,7 @@ def test_scanned_pdf_uses_multimodal_transcription(monkeypatch):
         "paragraphs": ["问：转账金额是多少？答：5000元。"],
         "confidence": 0.96,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe, raising=False)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe, raising=False)
 
     task = _upload("scanned.pdf", _blank_pdf_bytes())
 
@@ -271,7 +272,7 @@ def test_mixed_pdf_keeps_native_text_and_transcribes_embedded_images(monkeypatch
         "paragraphs": ["图片凭证流水号：MIXED-001"],
         "confidence": 0.9,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe)
 
     task = _upload("mixed-record.pdf", _mixed_pdf_bytes())
 
@@ -294,7 +295,7 @@ def test_docx_embedded_images_use_multimodal_transcription(monkeypatch):
         "paragraphs": ["交易流水号：TEST-VISION-001"],
         "confidence": 0.91,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe, raising=False)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe, raising=False)
 
     task = _upload("image-record.docx", _docx_with_image_bytes())
 
@@ -340,7 +341,7 @@ def test_empty_and_corrupt_files_fail_cleanly():
     ],
 )
 def test_qwen_failures_fail_the_whole_demo_task(monkeypatch, failure, expected_code):
-    monkeypatch.setattr("app.services.review.run_template_review", AsyncMock(side_effect=failure))
+    monkeypatch.setattr("app.review.review.run_template_review", AsyncMock(side_effect=failure))
     created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()

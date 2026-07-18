@@ -1,5 +1,5 @@
-from app.models import DocumentPage, DocumentParagraph, SourceType
-from app.services.question_answer import reconstruct_question_answers
+from app.core.models import DocumentPage, DocumentParagraph, SourceType
+from app.parsing.question_answer import reconstruct_question_answers
 
 
 def _paragraph(block_id: str, text: str) -> DocumentParagraph:

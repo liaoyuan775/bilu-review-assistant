@@ -3,10 +3,10 @@ import sqlite3
 
 import pytest
 
-from app.errors import AppError
-from app.models import ReviewMode, ReviewStatus, ReviewTask
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.core.errors import AppError
+from app.core.models import ReviewMode, ReviewStatus, ReviewTask
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 def test_schema_migration_is_versioned_and_idempotent(tmp_path):

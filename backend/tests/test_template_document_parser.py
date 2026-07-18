@@ -12,8 +12,8 @@ from docx import Document
 from docx.shared import Inches
 from lxml import etree
 
-from app.services.parser import parse_document
-from app.services.openxml import read_docx_parts
+from app.parsing.parser import parse_document
+from app.parsing.openxml import read_docx_parts
 
 
 PNG_1X1 = base64.b64decode(

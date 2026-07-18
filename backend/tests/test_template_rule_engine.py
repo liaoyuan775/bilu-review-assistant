@@ -1,6 +1,6 @@
-from app.models import RuleStatus
-from app.services.template_rule_engine import evaluate_template_rules
-from app.template_models import (
+from app.core.models import RuleStatus
+from app.review.rules import evaluate_template_rules
+from app.core.template_models import (
     CaseExtraction,
     ConsistencyCheck,
     ExtractedEntity,

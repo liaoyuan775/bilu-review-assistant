@@ -16,11 +16,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import QWEN_MODEL  # noqa: E402
-from app.development_logging import get_logger  # noqa: E402
-from app.services.parser import parse_document  # noqa: E402
-from app.services.template_extraction import DEFAULT_DOMAIN_CONCURRENCY, run_template_review  # noqa: E402
-from app.template_models import CaseExtraction  # noqa: E402
+from app.core.config import QWEN_MODEL  # noqa: E402
+from app.core.development_logging import get_logger  # noqa: E402
+from app.parsing.parser import parse_document  # noqa: E402
+from app.review.extraction import DEFAULT_DOMAIN_CONCURRENCY, run_template_review  # noqa: E402
+from app.core.template_models import CaseExtraction  # noqa: E402
 from scripts.generate_template_gold_cases import _case_extraction, build_gold_corpus  # noqa: E402
 from scripts.verify_template_quality import _gold_accuracy, _gold_semantic_fingerprint  # noqa: E402
 

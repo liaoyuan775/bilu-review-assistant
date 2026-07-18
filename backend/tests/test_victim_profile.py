@@ -1,4 +1,4 @@
-from app.services.victim_profile import extract_victim_profile
+from app.review.victim import extract_victim_profile
 
 
 def test_extracts_explicit_victim_profile_fields():

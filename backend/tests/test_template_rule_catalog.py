@@ -1,4 +1,4 @@
-from app.data import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
+from app.data.rules import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
 
 
 EXPECTED_GROUPS = {

@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 
-from app import development_logging
+from app.core import development_logging
 
 
 @contextmanager

@@ -1,4 +1,4 @@
-from app.services.parser import _native_blocks
+from app.parsing.parser import _native_blocks
 
 
 def test_native_pdf_lines_merge_into_complete_question_answer_pairs():

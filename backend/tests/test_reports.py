@@ -7,13 +7,13 @@ from docx import Document
 from fastapi.testclient import TestClient
 import fitz
 
-from app import store
+from app.storage import store
 from app.main import app
-from app.models import ReviewMode, ReviewTask
-from app.services import artifacts
-from app.services.reports import build_structured_report
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.core.models import ReviewMode, ReviewTask
+from app.storage import artifacts
+from app.reporting.reports import build_structured_report
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)

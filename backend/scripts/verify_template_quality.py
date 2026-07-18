@@ -15,19 +15,19 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import QWEN_MODEL  # noqa: E402
-from app.data import TEMPLATE_RULE_CATALOG  # noqa: E402
-from app.models import RuleStatus  # noqa: E402
-from app.services.parser import parse_document  # noqa: E402
-from app.services.template_extraction import (  # noqa: E402
+from app.core.config import QWEN_MODEL  # noqa: E402
+from app.data.rules import TEMPLATE_RULE_CATALOG  # noqa: E402
+from app.core.models import RuleStatus  # noqa: E402
+from app.parsing.parser import parse_document  # noqa: E402
+from app.review.extraction import (  # noqa: E402
     DEFAULT_DOMAIN_CONCURRENCY,
     DOMAIN_ENTITY_FIELDS,
     DOMAIN_FACT_PATHS,
     TemplateDomainFailure,
     run_template_review,
 )
-from app.services.template_rule_engine import _boolean_value, evaluate_template_rules  # noqa: E402
-from app.template_models import CaseExtraction, ExtractedEntity, ExtractedFact, TemplateRule  # noqa: E402
+from app.review.rules import _boolean_value, evaluate_template_rules  # noqa: E402
+from app.core.template_models import CaseExtraction, ExtractedEntity, ExtractedFact, TemplateRule  # noqa: E402
 from scripts.generate_template_gold_cases import (  # noqa: E402
     _case_extraction,
     build_gold_corpus,

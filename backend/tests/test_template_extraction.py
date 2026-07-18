@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.errors import AppError
-from app.models import DocumentPage, DocumentParagraph, ParsedDocument, RuleStatus, SourceType
-from app.services.question_answer import reconstruct_question_answers
-from app.services import template_extraction
-from app.services import qwen
-from app.template_models import (
+from app.core.errors import AppError
+from app.core.models import DocumentPage, DocumentParagraph, ParsedDocument, RuleStatus, SourceType
+from app.parsing.question_answer import reconstruct_question_answers
+from app.review import extraction as extraction_mod
+from app.llm import qwen
+from app.core.template_models import (
     CaseExtraction,
     ExtractedEntity,
     ExtractedFact,
@@ -61,11 +61,11 @@ def _missing_domain(domain: str) -> CaseExtraction:
     return CaseExtraction(
         facts={
             path: ExtractedFact(clarity="missing")
-            for path in template_extraction.DOMAIN_FACT_PATHS[domain]
+            for path in extraction_mod.DOMAIN_FACT_PATHS[domain]
         },
         entities={
             entity_type: []
-            for entity_type in template_extraction.DOMAIN_ENTITY_FIELDS[domain]
+            for entity_type in extraction_mod.DOMAIN_ENTITY_FIELDS[domain]
         },
     )
 
@@ -81,10 +81,10 @@ def test_domain_failure_keeps_successful_parallel_extractions(monkeypatch):
             )
         return _missing_domain(domain)
 
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
 
-    with pytest.raises(template_extraction.TemplateDomainFailure) as error:
-        asyncio.run(template_extraction.extract_template_facts(
+    with pytest.raises(extraction_mod.TemplateDomainFailure) as error:
+        asyncio.run(extraction_mod.extract_template_facts(
             _document(),
             {},
             max_concurrency=7,
@@ -95,9 +95,9 @@ def test_domain_failure_keeps_successful_parallel_extractions(monkeypatch):
     assert error.value.domain_error_details == {"contact_channels": "测试连接错误明细"}
     expected_paths = {
         path
-        for domain in template_extraction.DOMAIN_ORDER
+        for domain in extraction_mod.DOMAIN_ORDER
         if domain != "contact_channels"
-        for path in template_extraction.DOMAIN_FACT_PATHS[domain]
+        for path in extraction_mod.DOMAIN_FACT_PATHS[domain]
     }
     assert set(error.value.partial_extraction.facts) == expected_paths
 
@@ -119,13 +119,13 @@ def _rule(*required_fields: str, condition: RuleCondition | None = None) -> Temp
 
 
 def test_domain_schema_is_strict_and_requires_all_declared_fact_paths():
-    schema = template_extraction.template_extraction_schema("online_money")
+    schema = extraction_mod.template_extraction_schema("online_money")
 
     assert schema["additionalProperties"] is False
     assert set(schema["properties"]) == {"facts", "entities", "failedDomains"}
     facts = schema["properties"]["facts"]
     assert facts["additionalProperties"] is False
-    assert facts["required"] == list(template_extraction.DOMAIN_FACT_PATHS["online_money"])
+    assert facts["required"] == list(extraction_mod.DOMAIN_FACT_PATHS["online_money"])
     assert facts["properties"]["online_money.total"]["additionalProperties"] is False
     assert "sourceConfidence" not in facts["properties"]["online_money.total"]["properties"]
 
@@ -140,11 +140,11 @@ def test_domain_schema_avoids_provider_unsupported_unique_items_keyword():
             for nested in value:
                 yield from keys(nested)
 
-    assert "uniqueItems" not in set(keys(template_extraction.template_extraction_schema("online_money")))
+    assert "uniqueItems" not in set(keys(extraction_mod.template_extraction_schema("online_money")))
 
 
 def test_focused_domain_schema_requires_only_selected_fact_paths():
-    schema = template_extraction.template_extraction_schema(
+    schema = extraction_mod.template_extraction_schema(
         "contact_channels",
         fact_paths=("contact.chat_used",),
     )
@@ -161,7 +161,7 @@ def test_prompt_excludes_parenthetical_template_guidance():
         "（不要当作案件事实）",
     )
 
-    prompt = template_extraction.build_domain_prompt(document, "header_procedure")
+    prompt = extraction_mod.build_domain_prompt(document, "header_procedure")
 
     assert "讲一下基本情况？" in prompt
     assert "只能作为模板指导" not in prompt
@@ -169,13 +169,13 @@ def test_prompt_excludes_parenthetical_template_guidance():
 
 
 def test_prompt_requires_entity_ids_to_be_unique_across_the_domain():
-    prompt = template_extraction.build_domain_prompt(_document(), "offline_delivery")
+    prompt = extraction_mod.build_domain_prompt(_document(), "offline_delivery")
 
     assert "实体 ID 在整个业务域内必须唯一" in prompt
 
 
 def test_prompt_declares_required_entities_even_for_one_occurrence():
-    prompt = template_extraction.build_domain_prompt(_document(), "offline_delivery")
+    prompt = extraction_mod.build_domain_prompt(_document(), "offline_delivery")
 
     assert '"withdrawals": ["bank", "branch", "address", "time", "amount"]' in prompt
     assert '"offline_handoffs": ["time", "location", "property_type", "amount_or_value", "method", "recipient_or_logistics"]' in prompt
@@ -185,7 +185,7 @@ def test_prompt_declares_required_entities_even_for_one_occurrence():
 
 
 def test_focused_prompt_requests_only_the_selected_domain_paths():
-    prompt = template_extraction.build_domain_prompt(
+    prompt = extraction_mod.build_domain_prompt(
         _document(),
         "contact_channels",
         focus_paths=("contact.chat_used",),
@@ -196,22 +196,22 @@ def test_focused_prompt_requests_only_the_selected_domain_paths():
 
 
 def test_prompt_uses_short_anchor_aliases_instead_of_raw_paragraph_ids():
-    prompt = template_extraction.build_domain_prompt(_document(), "case_timeline")
+    prompt = extraction_mod.build_domain_prompt(_document(), "case_timeline")
 
     assert "[锚点:A001,A002]" in prompt
     assert "[锚点:q1,a1]" not in prompt
 
 
 def test_case_timeline_prompt_forbids_inference_from_isolated_events():
-    prompt = template_extraction.build_domain_prompt(_document(), "case_timeline")
+    prompt = extraction_mod.build_domain_prompt(_document(), "case_timeline")
 
     assert "case.timeline 只在笔录明确形成完整、连续的经过陈述时抽取" in prompt
     assert "不得用零散联系、风险提示、转账或交付时间推断" in prompt
 
 
 def test_money_domain_prompts_separate_online_transfers_from_offline_delivery():
-    online = template_extraction.build_domain_prompt(_document(), "online_money")
-    offline = template_extraction.build_domain_prompt(_document(), "offline_delivery")
+    online = extraction_mod.build_domain_prompt(_document(), "online_money")
+    offline = extraction_mod.build_domain_prompt(_document(), "offline_delivery")
 
     assert "不得把现金取款或线下交付次数当成线上转账笔数" in online
     assert "不得把线上转账、扫码付款或返款笔数当成取现或线下交付次数" in offline
@@ -220,9 +220,9 @@ def test_money_domain_prompts_separate_online_transfers_from_offline_delivery():
 
 def test_domain_request_maps_anchor_aliases_back_to_paragraph_ids(monkeypatch):
     document = _document()
-    monkeypatch.setattr(template_extraction, "QWEN_BASE_URL", "http://model.test/v1")
-    monkeypatch.setattr(template_extraction, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(template_extraction, "QWEN_MODEL", "test-model")
+    monkeypatch.setattr(extraction_mod, "QWEN_BASE_URL", "http://model.test/v1")
+    monkeypatch.setattr(extraction_mod, "QWEN_API_KEY", "test-key")
+    monkeypatch.setattr(extraction_mod, "QWEN_MODEL", "test-model")
     request = AsyncMock(return_value={
         "facts": {
             "case.report_reason": {
@@ -234,9 +234,9 @@ def test_domain_request_maps_anchor_aliases_back_to_paragraph_ids(monkeypatch):
         "entities": {},
         "failedDomains": [],
     })
-    monkeypatch.setattr(template_extraction, "request_structured_payload", request)
+    monkeypatch.setattr(extraction_mod, "request_structured_payload", request)
 
-    extraction = asyncio.run(template_extraction._request_domain(
+    extraction = asyncio.run(extraction_mod._request_domain(
         _DummyClient(),
         document,
         "case_timeline",
@@ -261,10 +261,10 @@ def test_invalid_anchor_is_retried_once_and_valid_result_is_accepted(monkeypatch
         evidenceAnchorIds=["a1"],
     )
     request = AsyncMock(side_effect=[invalid, valid])
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
-    extraction = asyncio.run(template_extraction.extract_template_facts(
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
         document,
         {},
         domains=("case_timeline",),
@@ -287,7 +287,7 @@ def test_guidance_only_anchor_cannot_support_a_case_fact():
     )
 
     with pytest.raises(AppError) as error:
-        template_extraction.validate_domain_extraction(document, "header_procedure", extraction)
+        extraction_mod.validate_domain_extraction(document, "header_procedure", extraction)
 
     assert error.value.code == "invalid_model_evidence"
 
@@ -299,7 +299,7 @@ def test_comma_joined_valid_anchor_ids_are_normalized_without_weakening_validati
         value="测试短信", clarity="clear", evidenceAnchorIds=["q1,a1"],
     )
 
-    validated = template_extraction.validate_domain_extraction(
+    validated = extraction_mod.validate_domain_extraction(
         document, "contact_channels", extraction,
     )
 
@@ -328,10 +328,10 @@ def test_domain_merge_preserves_all_repeated_entities(monkeypatch):
         ),
     ]
     request = AsyncMock(return_value=online)
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
-    extraction = asyncio.run(template_extraction.extract_template_facts(
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
         document,
         {},
         domains=("online_money",),
@@ -351,7 +351,7 @@ def test_duplicate_entity_id_returns_an_actionable_correction_hint():
     ]
 
     with pytest.raises(AppError) as error:
-        template_extraction.validate_domain_extraction(document, "offline_delivery", extraction)
+        extraction_mod.validate_domain_extraction(document, "offline_delivery", extraction)
 
     assert "实体 ID 在整个业务域内必须唯一" in (error.value.correction_hint or "")
 
@@ -371,7 +371,7 @@ def test_repeat_entity_count_must_match_the_declared_count_fact():
     ]
 
     with pytest.raises(AppError) as error:
-        template_extraction.validate_domain_extraction(document, "online_money", extraction)
+        extraction_mod.validate_domain_extraction(document, "online_money", extraction)
 
     assert "online_money.transfer_count" in (error.value.correction_hint or "")
 
@@ -384,7 +384,7 @@ def test_domain_entities_require_clear_positive_applicability():
     ]
 
     with pytest.raises(AppError) as error:
-        template_extraction.validate_domain_extraction(document, "online_money", extraction)
+        extraction_mod.validate_domain_extraction(document, "online_money", extraction)
 
     assert "online_money.used" in (error.value.correction_hint or "")
 
@@ -400,10 +400,10 @@ def test_multiple_domains_merge_without_overwriting_facts(monkeypatch):
         assert focus_paths is None
         return first if domain == "case_timeline" else second
 
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
-    extraction = asyncio.run(template_extraction.extract_template_facts(
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
         document,
         {},
         domains=("case_timeline", "contact_channels"),
@@ -419,10 +419,10 @@ def test_focused_extraction_accepts_the_selected_fact_subset(monkeypatch):
         "contact.chat_used": ExtractedFact(clarity="missing"),
     })
     request = AsyncMock(return_value=focused)
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
-    extraction = asyncio.run(template_extraction.extract_template_facts(
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
         document,
         {},
         domains=("contact_channels",),
@@ -441,11 +441,11 @@ def test_one_failed_domain_prevents_a_complete_extraction(monkeypatch):
         502,
         retry_strategy="schema",
     ))
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
     with pytest.raises(AppError) as error:
-        asyncio.run(template_extraction.extract_template_facts(
+        asyncio.run(extraction_mod.extract_template_facts(
             document,
             {},
             domains=("case_timeline",),
@@ -466,10 +466,10 @@ def test_review_uses_deterministic_results_without_semantic_recheck_when_clear(m
     })
     extract = AsyncMock(return_value=extraction)
     recheck = AsyncMock()
-    monkeypatch.setattr(template_extraction, "extract_template_facts", extract)
-    monkeypatch.setattr(template_extraction, "recheck_ambiguous_facts", recheck)
+    monkeypatch.setattr(extraction_mod, "extract_template_facts", extract)
+    monkeypatch.setattr(extraction_mod, "recheck_ambiguous_facts", recheck)
 
-    results = asyncio.run(template_extraction.review_template_document(
+    results = asyncio.run(extraction_mod.review_template_document(
         document,
         group_timings={},
         rules=[_rule("case.report_reason")],
@@ -492,14 +492,14 @@ def test_only_ambiguous_applicability_receives_targeted_recheck(monkeypatch):
     })
     extract = AsyncMock(return_value=initial)
     recheck = AsyncMock(return_value=resolved)
-    monkeypatch.setattr(template_extraction, "extract_template_facts", extract)
-    monkeypatch.setattr(template_extraction, "recheck_ambiguous_facts", recheck)
+    monkeypatch.setattr(extraction_mod, "extract_template_facts", extract)
+    monkeypatch.setattr(extraction_mod, "recheck_ambiguous_facts", recheck)
     rule = _rule(
         "offline.delivery_method",
         condition=RuleCondition(path="offline.used", operator="equals", value=True),
     )
 
-    results = asyncio.run(template_extraction.review_template_document(
+    results = asyncio.run(extraction_mod.review_template_document(
         document,
         group_timings={},
         rules=[rule],
