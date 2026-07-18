@@ -1,3 +1,8 @@
+import asyncio
+from pathlib import Path
+
+import pytest
+
 from app.core.models import (
     DocumentPage,
     DocumentParagraph,
@@ -175,3 +180,33 @@ def test_unrelated_question_answer_cannot_fill_profile_fields():
     assert profile.occupation is None
     assert profile.employer is None
     assert profile.registeredAddress is None
+
+
+REAL_RECORD = Path(__file__).resolve().parents[1] / "基于原模板填写-冒充客服退款诈骗询问笔录.docx"
+
+
+@pytest.mark.skipif(not REAL_RECORD.exists(), reason="approved local DOCX fixture is unavailable")
+def test_approved_electronic_record_has_complete_profile_and_33_question_answers():
+    from app.parsing.parser import parse_document
+
+    parsed = asyncio.run(parse_document(REAL_RECORD.name, REAL_RECORD.read_bytes()))
+    profile = extract_victim_profile(parsed)
+
+    assert len(parsed.questionAnswers) == 33
+    assert profile is not None
+    assert profile.model_dump() == {
+        "name": "测试甲",
+        "gender": "女",
+        "age": 34,
+        "birthDate": "1992年3月15日",
+        "ethnicity": "汉族",
+        "idNumber": "110000199203150028",
+        "occupation": "行政人员",
+        "education": "本科",
+        "employer": "某测试科技有限公司",
+        "address": "测试省测试市新城区平安街道清风社区测试路18号",
+        "registeredAddress": "测试省测试市安宁区测试乡测试村18号",
+        "contact": "15500000018",
+        "isNpcRepresentative": False,
+    }
+    assert parsed.warnings == []
