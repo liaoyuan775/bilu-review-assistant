@@ -32,7 +32,9 @@ from app.core.models import DocumentWarning, SourceType
 # ── OpenXML 命名空间常量 ──────────────────────────────────────────
 WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W = f"{{{WORD_NAMESPACE}}}"
-NAMESPACES = {"w": WORD_NAMESPACE}
+WORD_2010_NAMESPACE = "http://schemas.microsoft.com/office/word/2010/wordml"
+W14 = f"{{{WORD_2010_NAMESPACE}}}"
+NAMESPACES = {"w": WORD_NAMESPACE, "w14": WORD_2010_NAMESPACE}
 RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 R = f"{{{OFFICE_RELATIONSHIP_NAMESPACE}}}"
@@ -80,21 +82,99 @@ MEDIA_TYPES = {
     ".webp": "image/webp",
 }
 
+TEXT_CHECKBOX_MARKERS = {
+    "☑": "[选中]",
+    "☒": "[选中]",
+    "☐": "[未选]",
+    "□": "[未选]",
+}
 
-def _node_text(node: etree._Element) -> str:
+SYMBOL_CHECKBOX_MARKERS = {
+    ("wingdings 2", "00A3"): "[未选]",
+    ("wingdings 2", "0052"): "[选中]",
+}
+
+TRUE_VALUES = {"1", "on", "true", "checked"}
+FALSE_VALUES = {"0", "off", "false", "unchecked"}
+
+
+def _checkbox_marker(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in TRUE_VALUES:
+        return "[选中]"
+    if normalized in FALSE_VALUES:
+        return "[未选]"
+    return "[状态不明]"
+
+
+def _checkbox_value(node: etree._Element) -> str | None:
+    for attribute in (W14 + "val", W + "val", "val"):
+        if node.get(attribute) is not None:
+            return node.get(attribute)
+    return None
+
+
+def _warn_unknown_checkbox(warnings: list[DocumentWarning], part_name: str) -> None:
+    warnings.append(DocumentWarning(
+        code="checkbox_state_unknown",
+        message="DOCX 包含无法确认选中状态的电子方框，请人工核对。",
+        partName=part_name,
+    ))
+
+
+def _normalize_checkbox_glyphs(text: str) -> str:
+    return "".join(TEXT_CHECKBOX_MARKERS.get(character, character) for character in text)
+
+
+def _node_text(
+    node: etree._Element,
+    warnings: list[DocumentWarning] | None = None,
+    part_name: str = "word/document.xml",
+) -> str:
     """提取 XML 节点的纯文本内容，处理 w:t / w:tab / w:br 等元素。"""
-    parts: list[str] = []
-    for element in node.iter():
-        if element.tag == W + "t" and element.text:
-            parts.append(element.text)
-        elif element.tag == W + "tab":
-            parts.append("\t")
-        elif element.tag in {W + "br", W + "cr"}:
-            parts.append("\n")
-    return "".join(parts)
+    collected_warnings = warnings if warnings is not None else []
+
+    def render(element: etree._Element) -> str:
+        if element.tag == W + "t":
+            return _normalize_checkbox_glyphs(element.text or "")
+        if element.tag == W + "tab":
+            return "\t"
+        if element.tag in {W + "br", W + "cr"}:
+            return "\n"
+        if element.tag == W + "sdt":
+            checkbox = element.find("./w:sdtPr/w14:checkbox", NAMESPACES)
+            if checkbox is not None:
+                checked = checkbox.find("./w14:checked", NAMESPACES)
+                marker = _checkbox_marker(_checkbox_value(checked) if checked is not None else None)
+                if marker == "[状态不明]":
+                    _warn_unknown_checkbox(collected_warnings, part_name)
+                return marker
+        if element.tag == W + "fldChar":
+            checkbox = element.find("./w:ffData/w:checkBox", NAMESPACES)
+            if checkbox is not None:
+                state = checkbox.find("./w:checked", NAMESPACES)
+                if state is None:
+                    state = checkbox.find("./w:default", NAMESPACES)
+                marker = _checkbox_marker(_checkbox_value(state) if state is not None else None)
+                if marker == "[状态不明]":
+                    _warn_unknown_checkbox(collected_warnings, part_name)
+                return marker
+        if element.tag == W + "sym":
+            font = (element.get(W + "font") or "").strip().lower()
+            character = (element.get(W + "char") or "").strip().upper()
+            marker = SYMBOL_CHECKBOX_MARKERS.get((font, character))
+            if marker is not None:
+                return marker
+            if "checkbox" in font or font == "wingdings 2":
+                _warn_unknown_checkbox(collected_warnings, part_name)
+                return "[状态不明]"
+            return ""
+        return "".join(render(child) for child in element)
+
+    return render(node)
 
 
-def _body_blocks(document_xml: bytes) -> list[OpenXmlBlock]:
+def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[OpenXmlBlock]:
     """从 word/document.xml 提取正文段落、表格和内容控件。"""
     root = etree.fromstring(document_xml)
     body = root.find("w:body", NAMESPACES)
@@ -106,13 +186,13 @@ def _body_blocks(document_xml: bytes) -> list[OpenXmlBlock]:
     def append_child(child: etree._Element) -> None:
         """递归处理正文子元素，支持 p（段落）、tbl（表格）、sdt（内容控件）。"""
         if child.tag == W + "p":
-            text = _node_text(child).strip()
+            text = _node_text(child, warnings).strip()
             if text:
                 blocks.append(OpenXmlBlock(text=text, source_type=SourceType.NATIVE_TEXT))
         elif child.tag == W + "tbl":
             for row in child.findall("./w:tr", NAMESPACES):
                 cells = [
-                    _node_text(cell).strip()
+                    _node_text(cell, warnings).strip()
                     for cell in row.findall("./w:tc", NAMESPACES)
                 ]
                 text = " | ".join(cell for cell in cells if cell)
@@ -218,12 +298,17 @@ def _referenced_parts(
     return stories, list(dict.fromkeys(images))
 
 
-def _story_blocks(part_xml: bytes, source_type: SourceType) -> list[OpenXmlBlock]:
+def _story_blocks(
+    part_xml: bytes,
+    source_type: SourceType,
+    warnings: list[DocumentWarning],
+    part_name: str,
+) -> list[OpenXmlBlock]:
     """提取页眉或页脚部件中的段落。"""
     root = etree.fromstring(part_xml)
     blocks: list[OpenXmlBlock] = []
     for paragraph in root.findall(".//w:p", NAMESPACES):
-        text = _node_text(paragraph).strip()
+        text = _node_text(paragraph, warnings, part_name).strip()
         if text:
             blocks.append(OpenXmlBlock(text=text, source_type=source_type))
     return blocks
@@ -237,7 +322,7 @@ def _optional_story(
 ) -> list[OpenXmlBlock]:
     """安全读取页眉/页脚，损坏时生成 warning 而非抛出异常。"""
     try:
-        return _story_blocks(archive.read(part_name), source_type)
+        return _story_blocks(archive.read(part_name), source_type, warnings, part_name)
     except (BadZipFile, EOFError, RuntimeError, zlib.error, etree.XMLSyntaxError):
         warnings.append(DocumentWarning(
             code="part_corrupt",
@@ -280,7 +365,7 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
             for block in _optional_story(archive, part_name, SourceType.FOOTER, warnings)
         ]
         # 组合顺序：页眉优先，正文居中，页脚最后
-        blocks = [*header_blocks, *_body_blocks(document_xml), *footer_blocks]
+        blocks = [*header_blocks, *_body_blocks(document_xml, warnings), *footer_blocks]
 
         if len(image_parts) > MAX_IMAGES:
             raise AppError("docx_expansion_limit", "DOCX 引用图片数量过多，已拒绝解析。", 422)
