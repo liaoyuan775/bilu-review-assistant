@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+from collections import Counter
 from unittest.mock import AsyncMock
 
 import httpx
@@ -680,6 +681,90 @@ def test_large_entity_free_domain_is_split_into_strict_fact_batches(monkeypatch)
     assert all(1 <= len(batch) <= extraction_mod.MAX_FACTS_PER_SCHEMA_REQUEST for batch in requested_batches)
     assert set(path for batch in requested_batches for path in batch) == set(extraction_mod.DOMAIN_FACT_PATHS["case_timeline"])
     assert set(extraction.facts) == set(extraction_mod.DOMAIN_FACT_PATHS["case_timeline"])
+
+
+def test_entity_free_failure_retries_complete_batch_and_keeps_prior_batch(monkeypatch):
+    calls: list[tuple[str, ...]] = []
+    attempts: Counter = Counter()
+    paths = extraction_mod.DOMAIN_FACT_PATHS["case_timeline"]
+    first_batch = paths[:extraction_mod.MAX_FACTS_PER_SCHEMA_REQUEST]
+    failed_batch = paths[
+        extraction_mod.MAX_FACTS_PER_SCHEMA_REQUEST:2 * extraction_mod.MAX_FACTS_PER_SCHEMA_REQUEST
+    ]
+
+    async def request(_client, _document, _domain, correction=None, focus_paths=None):
+        calls.append(focus_paths)
+        attempts[focus_paths] += 1
+        if focus_paths == failed_batch and attempts[focus_paths] == 1:
+            raise AppError(
+                "invalid_model_evidence",
+                "测试证据错误。",
+                502,
+                retry_strategy="schema",
+                field=failed_batch[0],
+                correction_hint="完整重做本批次。",
+            )
+        return CaseExtraction(facts={
+            path: ExtractedFact(clarity="missing")
+            for path in focus_paths
+        })
+
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    asyncio.run(extraction_mod.extract_template_facts(
+        _document(),
+        {},
+        domains=("case_timeline",),
+    ))
+
+    assert calls.count(first_batch) == 1
+    assert calls.count(failed_batch) == 2
+
+
+def test_entity_domain_failure_retries_complete_domain(monkeypatch):
+    error = AppError(
+        "invalid_model_schema",
+        "测试字段类型错误。",
+        502,
+        retry_strategy="schema",
+        field="online_money.used",
+        correction_hint="必须返回 boolean。",
+    )
+    valid = _missing_domain("online_money")
+    request = AsyncMock(side_effect=[error, valid])
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    asyncio.run(extraction_mod.extract_template_facts(
+        _document(),
+        {},
+        domains=("online_money",),
+    ))
+
+    assert [call.args[4] for call in request.await_args_list] == [None, None]
+    assert request.await_args_list[1].args[3] is error
+
+
+def test_configured_schema_retries_control_attempt_count(monkeypatch):
+    request = AsyncMock(side_effect=AppError(
+        "invalid_model_schema",
+        "测试字段类型错误。",
+        502,
+        retry_strategy="schema",
+    ))
+    monkeypatch.setattr(extraction_mod, "QWEN_SCHEMA_RETRIES", 2, raising=False)
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    with pytest.raises(extraction_mod.TemplateDomainFailure):
+        asyncio.run(extraction_mod.extract_template_facts(
+            _document(),
+            {},
+            domains=("online_money",),
+        ))
+
+    assert request.await_count == 3
 
 
 def test_one_failed_domain_gets_one_schema_correction_retry(monkeypatch):

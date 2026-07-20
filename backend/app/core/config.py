@@ -28,6 +28,10 @@ try:
     QWEN_DOMAIN_CONCURRENCY = max(1, min(7, int(os.getenv("QWEN_DOMAIN_CONCURRENCY", "7"))))
 except ValueError:
     QWEN_DOMAIN_CONCURRENCY = 7
+try:
+    QWEN_SCHEMA_RETRIES = max(0, min(2, int(os.getenv("QWEN_SCHEMA_RETRIES", "1"))))
+except ValueError:
+    QWEN_SCHEMA_RETRIES = 1
 
 # ── CORS 与上传限制 ─────────────────────────────────────────────
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:4173")

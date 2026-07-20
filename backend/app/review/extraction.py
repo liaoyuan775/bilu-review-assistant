@@ -43,7 +43,13 @@ from time import perf_counter
 import httpx
 from pydantic import ValidationError
 
-from app.core.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_DOMAIN_CONCURRENCY, QWEN_MODEL
+from app.core.config import (
+    QWEN_API_KEY,
+    QWEN_BASE_URL,
+    QWEN_DOMAIN_CONCURRENCY,
+    QWEN_MODEL,
+    QWEN_SCHEMA_RETRIES,
+)
 from app.data.domain_contracts import (
     DOMAIN_CONTRACTS,
     DOMAIN_ENTITY_APPLICABILITY,
@@ -499,7 +505,7 @@ async def extract_template_facts(
                     extracted = CaseExtraction()
                     for batch_paths in request_batches:
                         correction: AppError | None = None
-                        for attempt in range(2):
+                        for attempt in range(1 + QWEN_SCHEMA_RETRIES):
                             try:
                                 batch = await _request_domain(
                                     client,
@@ -525,7 +531,7 @@ async def extract_template_facts(
                                     if error.code in {"model_unreachable", "model_request_failed"}
                                     else error
                                 )
-                                if attempt == 1:
+                                if attempt == QWEN_SCHEMA_RETRIES:
                                     raise
                         overlap = set(extracted.facts).intersection(batch.facts)
                         if overlap:
