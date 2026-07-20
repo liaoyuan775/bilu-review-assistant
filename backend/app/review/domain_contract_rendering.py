@@ -4,7 +4,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 from app.core.errors import AppError
-from app.core.models import ParsedDocument
+from app.core.models import EvidenceBlock, ParsedDocument
 from app.data.domain_contracts import DomainContract, FactContract, ValueSchema
 
 
@@ -20,6 +20,16 @@ def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
             start=1,
         )
     }
+
+
+def evidence_anchor_aliases(document: ParsedDocument) -> dict[str, str]:
+    """Map unified evidence-block IDs to the short aliases exposed to Qwen."""
+    if document.evidenceBlocks:
+        return {
+            block.id: f"A{index:03d}"
+            for index, block in enumerate(document.evidenceBlocks, start=1)
+        }
+    return _anchor_aliases(document)
 
 
 def _type_label(value_schema: ValueSchema) -> str:
@@ -53,24 +63,38 @@ def render_domain_prompt(
     if not set(selected_paths).issubset(contract.facts):
         raise ValueError(f"Fact path does not belong to extraction domain: {contract.domain}")
 
-    aliases = _anchor_aliases(document)
-    qa_anchor_ids = {
-        anchor
-        for block in document.questionAnswers
-        for anchor in block.anchorIds
-    }
-    exchanges = "\n".join(
-        f"[问答{index}][锚点:{','.join(aliases[anchor] for anchor in block.anchorIds)}] "
-        f"问：{block.question} 答：{block.answer}"
-        for index, block in enumerate(document.questionAnswers, start=1)
-        if block.answerClarity != "blank"
-    )
-    structural = "\n".join(
-        f"[锚点:{aliases[paragraph.id]}][第{page.page}页] {paragraph.text}"
-        for page in document.pages
-        for paragraph in page.paragraphs
-        if paragraph.id not in qa_anchor_ids
-    )
+    aliases = evidence_anchor_aliases(document)
+    if document.evidenceBlocks:
+        qa_by_id = {block.id: block for block in document.questionAnswers}
+        exchanges = "\n".join(
+            f"[问答{index}][锚点:{aliases[block.id]}] {block.text}"
+            for index, block in enumerate(document.evidenceBlocks, start=1)
+            if block.kind == "qa" and qa_by_id.get(block.id, None) is not None
+            and qa_by_id[block.id].answerClarity != "blank"
+        )
+        structural = "\n".join(
+            f"[锚点:{aliases[block.id]}][第{block.page or 1}页] {block.text}"
+            for block in document.evidenceBlocks
+            if block.kind == "text"
+        )
+    else:
+        qa_anchor_ids = {
+            anchor
+            for block in document.questionAnswers
+            for anchor in block.anchorIds
+        }
+        exchanges = "\n".join(
+            f"[问答{index}][锚点:{','.join(aliases[anchor] for anchor in block.anchorIds)}] "
+            f"问：{block.question} 答：{block.answer}"
+            for index, block in enumerate(document.questionAnswers, start=1)
+            if block.answerClarity != "blank"
+        )
+        structural = "\n".join(
+            f"[锚点:{aliases[paragraph.id]}][第{page.page}页] {paragraph.text}"
+            for page in document.pages
+            for paragraph in page.paragraphs
+            if paragraph.id not in qa_anchor_ids
+        )
 
     requested_lines = [
         "必须逐项返回这些事实路径：" + json.dumps(selected_paths, ensure_ascii=False),

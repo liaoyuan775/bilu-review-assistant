@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from app.core.errors import AppError
-from app.core.models import DocumentPage, DocumentParagraph, ParsedDocument, RuleStatus, SourceType
+from app.core.models import DocumentPage, DocumentParagraph, EvidenceBlock, ParsedDocument, RuleStatus, SourceType
 from app.parsing.question_answer import reconstruct_question_answers
 from app.review import extraction as extraction_mod
 from app.data.domain_contracts import DOMAIN_CONTRACTS
@@ -460,6 +460,21 @@ def test_prompt_uses_short_anchor_aliases_instead_of_raw_paragraph_ids():
 
     assert "[锚点:A001,A002]" in prompt
     assert "[锚点:q1,a1]" not in prompt
+
+
+def test_prompt_exposes_one_anchor_for_a_complete_qa_evidence_block():
+    document = _document()
+    qa_id = document.questionAnswers[0].id
+    document.evidenceBlocks = [
+        EvidenceBlock(id=qa_id, kind="qa", text="问：完整问题？\n答：完整答案。", paragraphIds=["q1", "a1"], page=1, paragraph=1),
+    ]
+
+    prompt = extraction_mod.build_domain_prompt(document, "case_timeline")
+    schema = extraction_mod.template_extraction_schema("case_timeline", allowed_anchor_ids=("A001",))
+
+    assert "[锚点:A001]" in prompt
+    assert "[锚点:A001,A002]" not in prompt
+    assert schema["$defs"]["anchorId"]["enum"] == ["A001"]
 
 
 def test_case_timeline_prompt_forbids_inference_from_isolated_events():

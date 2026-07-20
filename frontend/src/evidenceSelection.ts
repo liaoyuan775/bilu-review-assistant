@@ -36,8 +36,15 @@ export const evidenceAnchorRangesFor = (
 ) => {
   if (!result) return [];
   const selected = new Set(result.evidenceAnchorIds ?? []);
+  const evidenceBlocks = document.evidenceBlocks ?? [];
+  const blockParagraphIds = new Map(
+    evidenceBlocks.map((block) => [block.id, block.paragraphIds]),
+  );
+  const selectedParagraphs = new Set(
+    [...selected].flatMap((anchor) => blockParagraphIds.get(anchor) ?? [anchor]),
+  );
   return document.pages.flatMap((page) => page.paragraphs.flatMap((paragraph, index) =>
-    selected.has(paragraph.id) ? [{
+    selectedParagraphs.has(paragraph.id) ? [{
       blockId: paragraph.id,
       page: page.page,
       paragraph: index + 1,

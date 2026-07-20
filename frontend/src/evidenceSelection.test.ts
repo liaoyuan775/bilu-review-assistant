@@ -60,4 +60,29 @@ describe("evidence selection", () => {
       bbox: [72, 90, 140, 108],
     }]);
   });
+
+  it("expands one QA evidence block to every source paragraph", () => {
+    const document = {
+      id: "document-2",
+      name: "record.docx",
+      format: "DOCX",
+      pageCount: 1,
+      pages: [{
+        page: 1,
+        paragraphs: [
+          { id: "q1", text: "问：问题", sourceType: "native_text", confidence: null, charStart: 0, charEnd: 5, bbox: null },
+          { id: "q2", text: "问题续行", sourceType: "native_text", confidence: null, charStart: 6, charEnd: 10, bbox: null },
+          { id: "a1", text: "答：答案", sourceType: "native_text", confidence: null, charStart: 11, charEnd: 16, bbox: null },
+        ],
+      }],
+      text: "问：问题\n问题续行\n答：答案",
+      sizeLabel: "test",
+      warnings: [],
+      questionAnswers: [],
+      evidenceBlocks: [{ id: "qa-1", kind: "qa", text: "问：问题\n问题续行\n答：答案", paragraphIds: ["q1", "q2", "a1"], page: 1, paragraph: 1 }],
+    } satisfies ParsedDocument;
+    const result = { evidenceAnchorIds: ["qa-1"], evidenceLocation: null, evidenceLocations: [] } as Pick<ReviewResult, "evidenceAnchorIds" | "evidenceLocation" | "evidenceLocations">;
+
+    expect(evidenceAnchorRangesFor(result, document).map((range) => range.blockId)).toEqual(["q1", "q2", "a1"]);
+  });
 });

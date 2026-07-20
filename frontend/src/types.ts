@@ -52,6 +52,15 @@ export interface QuestionAnswerBlock {
   answerClarity: "clear" | "blank" | "unclear";
 }
 
+export interface EvidenceBlock {
+  id: string;
+  kind: "qa" | "text";
+  text: string;
+  paragraphIds: string[];
+  page: number | null;
+  paragraph: number | null;
+}
+
 /** 标准化文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。 */
 export interface ParsedDocument {
   id: string;
@@ -63,6 +72,7 @@ export interface ParsedDocument {
   sizeLabel: string;
   warnings: DocumentWarning[];
   questionAnswers: QuestionAnswerBlock[];
+  evidenceBlocks?: EvidenceBlock[];
 }
 
 /** 被害人信息 — 全部字段可为空。 */

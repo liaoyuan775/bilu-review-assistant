@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 import re
 
-from app.core.models import DocumentPage, QuestionAnswerBlock
+from app.core.models import DocumentPage, DocumentParagraph, EvidenceBlock, QuestionAnswerBlock
 
 
 # "问："或"答："前导标记（支持中文冒号和英文冒号）
@@ -55,8 +55,11 @@ def _without_guidance(text: str) -> tuple[str, list[str]]:
     return " ".join(cleaned.split()), guidance
 
 
-def _finish(current: _OpenQuestion | None) -> QuestionAnswerBlock | None:
-    """完成一个问答对的构建，返回 QuestionAnswerBlock 或 None（无效）。"""
+def _finish(
+    current: _OpenQuestion | None,
+    locations: dict[str, tuple[int, int]],
+) -> tuple[QuestionAnswerBlock, EvidenceBlock] | None:
+    """完成一个问答对，同时返回兼容问答对象和统一证据块。"""
     if current is None:
         return None
     raw_question = _join_parts(current.question_parts)
@@ -71,15 +74,107 @@ def _finish(current: _OpenQuestion | None) -> QuestionAnswerBlock | None:
         clarity = "unclear"
     else:
         clarity = "clear"
-    identity = "\0".join([question, *current.anchor_ids])
-    return QuestionAnswerBlock(
-        id=sha256(identity.encode("utf-8")).hexdigest()[:24],
+    text = f"问：{question}\n答：{answer}"
+    identity = "\0".join(["qa", text, *current.anchor_ids])
+    block_id = sha256(identity.encode("utf-8")).hexdigest()[:24]
+    first_page, first_paragraph = locations[current.anchor_ids[0]]
+    question_answer = QuestionAnswerBlock(
+        id=block_id,
         question=question,
         answer=answer,
         guidance=[*question_guidance, *answer_guidance],
         anchorIds=current.anchor_ids,
         answerClarity=clarity,
     )
+    evidence = EvidenceBlock(
+        id=block_id,
+        kind="qa",
+        text=text,
+        paragraphIds=current.anchor_ids,
+        page=first_page,
+        paragraph=first_paragraph,
+    )
+    return question_answer, evidence
+
+
+def _text_block(paragraph: DocumentParagraph, page: int, index: int) -> EvidenceBlock:
+    return EvidenceBlock(
+        id=paragraph.id,
+        kind="text",
+        text=paragraph.text,
+        paragraphIds=[paragraph.id],
+        page=page,
+        paragraph=index,
+    )
+
+
+def reconstruct_document_structure(
+    pages: list[DocumentPage],
+) -> tuple[list[QuestionAnswerBlock], list[EvidenceBlock]]:
+    """从原始段落一次生成兼容问答对象和统一证据块。"""
+    question_answers: list[QuestionAnswerBlock] = []
+    evidence_blocks: list[EvidenceBlock] = []
+    current: _OpenQuestion | None = None
+    locations = {
+        paragraph.id: (page.page, index)
+        for page in pages
+        for index, paragraph in enumerate(page.paragraphs, start=1)
+    }
+
+    def finish_current() -> None:
+        nonlocal current
+        finished = _finish(current, locations)
+        if finished is not None:
+            question_answer, evidence = finished
+            question_answers.append(question_answer)
+            evidence_blocks.append(evidence)
+        current = None
+
+    for page in pages:
+        for paragraph_index, paragraph in enumerate(page.paragraphs, start=1):
+            text = paragraph.text.strip()
+            matches = list(_MARKER.finditer(text))
+            if not matches:
+                if current is None:
+                    if text:
+                        evidence_blocks.append(_text_block(paragraph, page.page, paragraph_index))
+                elif text:
+                    target = current.answer_parts if current.answer_started else current.question_parts
+                    target.append(text)
+                    current.add_anchor(paragraph.id)
+                continue
+
+            prefix = text[:matches[0].start()].strip()
+            if current is not None and prefix:
+                target = current.answer_parts if current.answer_started else current.question_parts
+                target.append(prefix)
+                current.add_anchor(paragraph.id)
+            elif prefix:
+                evidence_blocks.append(EvidenceBlock(
+                    id=sha256(f"text\0{prefix}\0{paragraph.id}".encode("utf-8")).hexdigest()[:24],
+                    kind="text",
+                    text=prefix,
+                    paragraphIds=[paragraph.id],
+                    page=page.page,
+                    paragraph=paragraph_index,
+                ))
+
+            for index, match in enumerate(matches):
+                value_start = match.end()
+                value_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+                value = text[value_start:value_end].strip()
+                if match.group(1) == "问":
+                    finish_current()
+                    current = _OpenQuestion(question_parts=[value] if value else [])
+                    current.add_anchor(paragraph.id)
+                elif current is not None:
+                    current.answer_started = True
+                    if value:
+                        current.answer_parts.append(value)
+                    current.add_anchor(paragraph.id)
+
+    finish_current()
+    return question_answers, evidence_blocks
 
 
 def reconstruct_question_answers(pages: list[DocumentPage]) -> list[QuestionAnswerBlock]:
@@ -97,46 +192,11 @@ def reconstruct_question_answers(pages: list[DocumentPage]) -> list[QuestionAnsw
     Returns:
         重建的问答对列表。
     """
-    blocks: list[QuestionAnswerBlock] = []
-    current: _OpenQuestion | None = None
+    question_answers, _ = reconstruct_document_structure(pages)
+    return question_answers
 
-    for page in pages:
-        for paragraph in page.paragraphs:
-            text = paragraph.text.strip()
-            matches = list(_MARKER.finditer(text))
-            if not matches:
-                # 非问答标记行：若正在收集答案则追加
-                if current is not None and current.answer_started and text:
-                    current.answer_parts.append(text)
-                    current.add_anchor(paragraph.id)
-                continue
 
-            # 处理问答标记前的文本前缀
-            prefix = text[:matches[0].start()].strip()
-            if current is not None and current.answer_started and prefix:
-                current.answer_parts.append(prefix)
-                current.add_anchor(paragraph.id)
-
-            # 逐个处理本段中的问答标记
-            for index, match in enumerate(matches):
-                value_start = match.end()
-                value_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-                value = text[value_start:value_end].strip()
-                if match.group(1) == "问":
-                    # 新问题：结束当前问答，开启下一个
-                    finished = _finish(current)
-                    if finished is not None:
-                        blocks.append(finished)
-                    current = _OpenQuestion(question_parts=[value] if value else [])
-                    current.add_anchor(paragraph.id)
-                elif current is not None:
-                    # "答："标记
-                    current.answer_started = True
-                    if value:
-                        current.answer_parts.append(value)
-                    current.add_anchor(paragraph.id)
-
-    finished = _finish(current)
-    if finished is not None:
-        blocks.append(finished)
-    return blocks
+def reconstruct_evidence_blocks(pages: list[DocumentPage]) -> list[EvidenceBlock]:
+    """构建按原文顺序排列的 text/qa 统一证据块。"""
+    _, evidence_blocks = reconstruct_document_structure(pages)
+    return evidence_blocks

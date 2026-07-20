@@ -25,7 +25,7 @@ from app.core.development_logging import log_event, log_payload
 from app.core.errors import AppError
 from app.core.models import DocumentPage, DocumentParagraph, ParsedDocument, SourceType
 from app.parsing.openxml import read_docx_parts
-from app.parsing.question_answer import reconstruct_question_answers
+from app.parsing.question_answer import reconstruct_document_structure
 from app.parsing.vision import transcribe_image
 
 
@@ -227,6 +227,7 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
     if not blocks:
         raise AppError("empty_document", "文档中没有可供审查的文字或图片内容。", 422)
     pages, full_text = _finalize_pages(_paginate(blocks))
+    question_answers, evidence_blocks = reconstruct_document_structure(pages)
     parsed = ParsedDocument(
         name=filename,
         format="DOCX",
@@ -235,7 +236,8 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
         text=full_text,
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
         warnings=package.warnings,
-        questionAnswers=reconstruct_question_answers(pages),
+        questionAnswers=question_answers,
+        evidenceBlocks=evidence_blocks,
     )
     log_event(logging.INFO, "parser.docx_complete", filename=filename, pages=parsed.pageCount, paragraphs=len(blocks), images=len(package.images), warnings=len(package.warnings), chars=len(parsed.text))
     log_payload("document.parsed_text", parsed.text, filename=filename, format=parsed.format)
@@ -294,6 +296,7 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
     pages, full_text = _finalize_pages(pages)
     if not full_text:
         raise AppError("empty_document", "PDF 中没有识别到可供审查的内容。", 422)
+    question_answers, evidence_blocks = reconstruct_document_structure(pages)
     parsed = ParsedDocument(
         name=filename,
         format="PDF",
@@ -301,7 +304,8 @@ async def _parse_pdf(filename: str, content: bytes) -> ParsedDocument:
         pages=pages,
         text=full_text,
         sizeLabel=f"{len(content) / 1024 / 1024:.2f} MB",
-        questionAnswers=reconstruct_question_answers(pages),
+        questionAnswers=question_answers,
+        evidenceBlocks=evidence_blocks,
     )
     log_event(logging.INFO, "parser.pdf_complete", filename=filename, pages=parsed.pageCount, paragraphs=sum(len(page.paragraphs) for page in pages), chars=len(parsed.text))
     log_payload("document.parsed_text", parsed.text, filename=filename, format=parsed.format)

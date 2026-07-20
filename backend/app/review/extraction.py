@@ -65,6 +65,7 @@ from app.core.models import EvidenceLocation, ManualDecision, ParsedDocument, Re
 from app.llm.qwen import request_structured_payload
 from app.review.domain_contract_rendering import (
     build_domain_schema,
+    evidence_anchor_aliases,
     render_domain_prompt,
     validate_schema_payload,
 )
@@ -172,18 +173,20 @@ def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
     长锚点 ID 是 SHA-256 哈希的前 24 位（如 "a1b2c3d4e5f6g7h8i9j0k1l2"），
     对模型不友好。短别名（A001）更容易让模型理解和引用。
     """
-    return {
-        paragraph.id: f"A{index:03d}"
-        for index, paragraph in enumerate(
-            (paragraph for page in document.pages for paragraph in page.paragraphs),
-            start=1,
-        )
-    }
+    return evidence_anchor_aliases(document)
 
 
 def _evidence_anchor_aliases(document: ParsedDocument) -> tuple[str, ...]:
     """返回可作为事实证据的短锚点，排除空答案问答。"""
     aliases = _anchor_aliases(document)
+    if document.evidenceBlocks:
+        blank_blocks = {
+            block.id
+            for block in document.evidenceBlocks
+            if block.kind == "qa"
+            and any(qa.id == block.id and qa.answerClarity == "blank" for qa in document.questionAnswers)
+        }
+        return tuple(alias for anchor, alias in aliases.items() if anchor not in blank_blocks)
     blank_anchors = {
         anchor
         for block in document.questionAnswers
@@ -258,11 +261,14 @@ def _restore_anchor_aliases(document: ParsedDocument, extraction: CaseExtraction
 
 def _anchor_index(document: ParsedDocument) -> dict[str, str]:
     """构建锚点 ID → 段落原文的索引。"""
-    return {
+    anchors = {
         paragraph.id: paragraph.text
         for page in document.pages
         for paragraph in page.paragraphs
     }
+    for block in document.evidenceBlocks:
+        anchors[block.id] = block.text
+    return anchors
 
 
 def validate_domain_extraction(
@@ -302,6 +308,12 @@ def validate_domain_extraction(
         for block in document.questionAnswers
         for anchor in block.anchorIds
     }
+    if document.evidenceBlocks:
+        qa_by_anchor.update({
+            block.id: block
+            for block in document.questionAnswers
+            if any(evidence.id == block.id and evidence.kind == "qa" for evidence in document.evidenceBlocks)
+        })
 
     def validate_fact(path: str, fact: ExtractedFact) -> None:
         if fact.clarity in {"missing", "unknown"}:
@@ -738,7 +750,30 @@ def _review_result(document: ParsedDocument, issue: TemplateReviewIssue) -> Revi
         for page in document.pages
         for index, paragraph in enumerate(page.paragraphs)
     }
-    located = [anchor_index[anchor] for anchor in issue.anchorIds if anchor in anchor_index]
+    if document.evidenceBlocks:
+        block_index = {block.id: block for block in document.evidenceBlocks}
+        located: list[tuple[str, EvidenceLocation]] = []
+        for anchor in issue.anchorIds:
+            block = block_index.get(anchor)
+            if block is None:
+                if anchor in anchor_index:
+                    located.append(anchor_index[anchor])
+                continue
+            for paragraph_id in block.paragraphIds:
+                if paragraph_id in anchor_index:
+                    paragraph_location = next(
+                        (EvidenceLocation(page=page.page, paragraph=index + 1)
+                         for page in document.pages
+                         for index, paragraph in enumerate(page.paragraphs)
+                         if paragraph.id == paragraph_id),
+                        None,
+                    )
+                    if paragraph_location is not None:
+                        located.append((anchor_index[paragraph_id], paragraph_location))
+        if not located:
+            located = [anchor_index[anchor] for anchor in issue.anchorIds if anchor in anchor_index]
+    else:
+        located = [anchor_index[anchor] for anchor in issue.anchorIds if anchor in anchor_index]
     locations: list[EvidenceLocation] = []
     evidence_parts: list[str] = []
     for text, location in located:
