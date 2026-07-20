@@ -1,9 +1,24 @@
-from app.core.models import DocumentPage, DocumentParagraph, SourceType
+from app.core.models import DocumentPage, DocumentParagraph, EvidenceBlock, ParsedDocument, SourceType
 from app.parsing.question_answer import reconstruct_question_answers
 
 
 def _paragraph(block_id: str, text: str) -> DocumentParagraph:
     return DocumentParagraph(id=block_id, text=text, sourceType=SourceType.NATIVE_TEXT)
+
+
+def test_evidence_block_model_defaults_and_serializes():
+    block = EvidenceBlock(
+        id="qa-1",
+        kind="qa",
+        text="问：问题\n答：答案",
+        paragraphIds=["p1", "p2"],
+        page=1,
+        paragraph=2,
+    )
+
+    assert block.kind == "qa"
+    assert block.paragraphIds == ["p1", "p2"]
+    assert ParsedDocument().evidenceBlocks == []
 
 
 def test_reconstructs_multiple_question_answers_from_one_paragraph():

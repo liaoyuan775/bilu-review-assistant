@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from uuid import uuid4
 
@@ -81,6 +81,18 @@ class SourceType(StrEnum):
 # 文档解析模型
 # ═══════════════════════════════════════════════════════════════════
 
+class EvidenceBlock(BaseModel):
+    """模型判断和 UI 高亮使用的统一证据块。"""
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    kind: Literal["qa", "text"]
+    text: str
+    paragraphIds: list[str] = Field(default_factory=list)
+    page: int | None = None
+    paragraph: int | None = None
+
+
 class ParsedDocument(BaseModel):
     """统一解析文档 — 无论 DOCX/PDF，解析后都转为此结构。
 
@@ -100,6 +112,7 @@ class ParsedDocument(BaseModel):
     sizeLabel: str = ""
     warnings: list[DocumentWarning] = []
     questionAnswers: list[QuestionAnswerBlock] = []
+    evidenceBlocks: list[EvidenceBlock] = []
 
 
 class DocumentPage(BaseModel):
