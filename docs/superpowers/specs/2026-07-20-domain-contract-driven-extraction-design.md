@@ -203,16 +203,24 @@ A validation failure records:
 - corrective instruction from the contract.
 
 The correction request uses the same strict JSON Schema configuration as the
-initial request. It contains the previous failure and asks only for the failed
-field subset when facts are independent.
+initial request. Correction feedback identifies the exact failed field, but
+the response unit is never a single field.
 
-Successful batches are retained. A failed batch does not cause completed
-batches in the same domain to be regenerated.
+Entity-free domains use fixed fact batches. A failed batch is regenerated in
+full while successful batches in the same domain are retained. The regenerated
+batch is merged by its declared path set, then the complete domain is validated
+again.
 
-Entity corrections preserve entity atomicity. When a failure involves an
-entity count, applicability fact, duplicate ID, or cross-field relationship,
-the complete entity domain is corrected together because an isolated field
-would not contain enough context.
+Domains containing repeated entities are atomic. Any fact, entity count,
+applicability, duplicate ID, entity field, or cross-field failure regenerates
+the complete domain because a partial response would not contain enough
+context to preserve counts, IDs, sums, and applicability relationships.
+
+The retry units are therefore:
+
+- failed fixed batch for entity-free domains;
+- complete domain for domains containing repeated entities;
+- never an individual fact or entity field.
 
 Retry limits remain finite and configurable in application configuration.
 There is no plain JSON or Tool Calling fallback.
@@ -259,7 +267,7 @@ Automated tests cover:
 - local rejection of a typed error such as
   `online_money.used.value=36400`;
 - clarity/value/evidence combinations;
-- focused fact correction and retained successful batches;
+- complete failed-batch correction and retained successful batches;
 - atomic entity-domain correction;
 - upload and demo persistence of failed-domain details;
 - no plain/tool fallback in source or request payloads;
