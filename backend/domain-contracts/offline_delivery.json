@@ -1,0 +1,46 @@
+{
+  "domain": "offline_delivery",
+  "title": "线下取现与交付",
+  "include": ["银行取现", "现金或实物来源", "逐次线下交付", "银行风险提示"],
+  "exclude": ["线上转账或扫码付款", "线上返款", "把线上转账笔数当作取现次数"],
+  "facts": {
+    "cash.bank_appointment": {"description": "取款前是否预约银行", "valueSchema": {"type": ["boolean", "null"]}},
+    "cash.bank_warning_channel": {"description": "银行风险提示渠道", "valueSchema": {"type": ["string", "null"]}},
+    "cash.bank_warning_received": {"description": "取款时是否收到银行风险提示", "valueSchema": {"type": ["boolean", "null"]}},
+    "cash.withdrawal_count": {"description": "银行取现次数", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},
+    "offline.appointment_amount": {"description": "对方预约拿款金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "offline.appointment_location": {"description": "对方预约拿款地点", "valueSchema": {"type": ["string", "null"]}},
+    "offline.appointment_time": {"description": "对方预约拿款时间", "valueSchema": {"type": ["string", "null"]}},
+    "offline.handoff_count": {"description": "现金或实物线下交付次数", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},
+    "offline.property_source": {"description": "交付财物来源", "valueSchema": {"type": ["string", "null"]}},
+    "offline.suspect_appointment": {"description": "嫌疑人是否预约拿款", "valueSchema": {"type": ["boolean", "null"]}},
+    "offline.used": {"description": "是否发生取现或线下财物交付", "valueSchema": {"type": ["boolean", "null"]}}
+  },
+  "entities": {
+    "withdrawals": {
+      "description": "每次银行取现记录",
+      "applicabilityPath": "offline.used",
+      "countPath": "cash.withdrawal_count",
+      "fields": {
+        "bank": {"description": "取款银行", "valueSchema": {"type": ["string", "null"]}},
+        "branch": {"description": "取款网点", "valueSchema": {"type": ["string", "null"]}},
+        "address": {"description": "取款地址", "valueSchema": {"type": ["string", "null"]}},
+        "time": {"description": "取款时间", "valueSchema": {"type": ["string", "null"]}},
+        "amount": {"description": "取款金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}}
+      }
+    },
+    "offline_handoffs": {
+      "description": "每次现金或实物线下交付记录",
+      "applicabilityPath": "offline.used",
+      "countPath": "offline.handoff_count",
+      "fields": {
+        "time": {"description": "交付时间", "valueSchema": {"type": ["string", "null"]}},
+        "location": {"description": "交付地点", "valueSchema": {"type": ["string", "null"]}},
+        "property_type": {"description": "交付财物类型", "valueSchema": {"type": ["string", "null"]}},
+        "amount_or_value": {"description": "交付金额或价值", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+        "method": {"description": "交付方式", "valueSchema": {"type": ["string", "null"]}},
+        "recipient_or_logistics": {"description": "接收人员或物流信息", "valueSchema": {"type": ["string", "null"]}}
+      }
+    }
+  }
+}

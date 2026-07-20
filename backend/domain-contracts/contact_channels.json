@@ -1,0 +1,28 @@
+{
+  "domain": "contact_channels",
+  "title": "联系渠道",
+  "include": ["首次联系渠道与账号", "聊天、电话和语音使用情况", "逐次渠道切换"],
+  "exclude": ["案件完整经过", "资金流向", "电话卡或聊天账号实名判断"],
+  "facts": {
+    "contact.chat_used": {"description": "是否使用聊天工具联系", "valueSchema": {"type": ["boolean", "null"]}},
+    "contact.initial_account": {"description": "首次联系账号", "valueSchema": {"type": ["string", "null"]}},
+    "contact.initial_channel": {"description": "首次联系渠道", "valueSchema": {"type": ["string", "null"]}},
+    "contact.initial_content": {"description": "首次联系内容", "valueSchema": {"type": ["string", "null"]}},
+    "contact.phone_used": {"description": "是否使用电话联系", "valueSchema": {"type": ["boolean", "null"]}},
+    "contact.switch_count": {"description": "后续联系渠道切换次数", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},
+    "contact.voice_call": {"description": "是否发生语音通话", "valueSchema": {"type": ["boolean", "null"]}}
+  },
+  "entities": {
+    "contact_switches": {
+      "description": "每次后续联系人或渠道切换记录",
+      "countPath": "contact.switch_count",
+      "fields": {
+        "time": {"description": "切换时间", "valueSchema": {"type": ["string", "null"]}},
+        "channel": {"description": "切换后的渠道", "valueSchema": {"type": ["string", "null"]}},
+        "account": {"description": "联系人或账号", "valueSchema": {"type": ["string", "null"]}},
+        "important_information": {"description": "重要信息", "valueSchema": {"type": ["string", "null"]}},
+        "details": {"description": "联系详情", "valueSchema": {"type": ["string", "null"]}}
+      }
+    }
+  }
+}

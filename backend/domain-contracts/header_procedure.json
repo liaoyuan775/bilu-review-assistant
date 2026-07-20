@@ -1,0 +1,30 @@
+{
+  "domain": "header_procedure",
+  "title": "头信息与程序事项",
+  "include": ["笔录元信息", "程序性权利告知与确认", "被询问人基础信息"],
+  "exclude": ["案件经过", "资金行为", "风险与证据"],
+  "facts": {
+    "procedure.key_information_reconfirmed": {"description": "关键信息是否再次确认", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.record_matches_statement": {"description": "笔录是否与陈述一致", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.record_reviewed": {"description": "被询问人是否核对笔录", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.recusal_requested": {"description": "是否申请办案人员回避", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.rights_notice_read": {"description": "是否宣读或阅读权利义务告知", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.rights_request": {"description": "被询问人提出的权利请求", "valueSchema": {"type": ["string", "null"]}},
+    "procedure.statement_confirmed_true": {"description": "是否确认陈述真实准确", "valueSchema": {"type": ["boolean", "null"]}},
+    "procedure.truth_notice_confirmed": {"description": "是否确认如实作答义务", "valueSchema": {"type": ["boolean", "null"]}},
+    "record.interviewers": {"description": "询问人员", "valueSchema": {"type": ["string", "null"]}},
+    "record.location": {"description": "询问地点", "valueSchema": {"type": ["string", "null"]}},
+    "record.respondent": {"description": "被询问人", "valueSchema": {"type": ["string", "null"]}},
+    "record.signatures": {"description": "签名确认情况", "valueSchema": {"type": ["string", "null"]}},
+    "record.started_at": {"description": "询问开始时间", "valueSchema": {"type": ["string", "null"]}},
+    "victim.age": {"description": "被害人年龄", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},
+    "victim.education": {"description": "被害人文化程度", "valueSchema": {"type": ["string", "null"]}},
+    "victim.employer": {"description": "被害人工作单位", "valueSchema": {"type": ["string", "null"]}},
+    "victim.gender": {"description": "被害人性别", "valueSchema": {"type": ["string", "null"]}},
+    "victim.id_number": {"description": "被害人身份证号", "valueSchema": {"type": ["string", "null"]}},
+    "victim.name": {"description": "被害人姓名", "valueSchema": {"type": ["string", "null"]}},
+    "victim.occupation": {"description": "被害人职业", "valueSchema": {"type": ["string", "null"]}},
+    "victim.phone": {"description": "被害人联系电话", "valueSchema": {"type": ["string", "null"]}}
+  },
+  "entities": {}
+}

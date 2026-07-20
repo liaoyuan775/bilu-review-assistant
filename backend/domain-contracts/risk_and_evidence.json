@@ -1,0 +1,27 @@
+{
+  "domain": "risk_and_evidence",
+  "title": "风险与证据",
+  "include": ["反诈宣传", "风险提示与实名情况", "证据留存和提供能力"],
+  "exclude": ["案件时间线", "资金金额与实体", "联系渠道明细"],
+  "facts": {
+    "evidence.can_provide": {"description": "相关证据能否提供", "valueSchema": {"type": ["boolean", "null"]}},
+    "evidence.record_types": {"description": "留存的证据记录类型", "valueSchema": {"type": ["array", "null"], "items": "string"}},
+    "evidence.records_retained": {"description": "相关记录是否留存", "valueSchema": {"type": ["boolean", "null"]}},
+    "evidence.voice_recording_available": {"description": "语音录音能否提供", "valueSchema": {"type": ["boolean", "null"]}},
+    "evidence.voice_recording_exists": {"description": "是否存在语音录音", "valueSchema": {"type": ["boolean", "null"]}},
+    "prevention.anti_fraud_app_installed": {"description": "是否安装国家反诈中心应用", "valueSchema": {"type": ["boolean", "null"]}},
+    "prevention.community_police_publicity": {"description": "是否接受社区民警反诈宣传", "valueSchema": {"type": ["boolean", "null"]}},
+    "prevention.received_publicity": {"description": "是否接受过反诈宣传", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.account_loss_reported": {"description": "发现被骗后是否挂失或报案", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.loss_report_time": {"description": "挂失或报案时间", "valueSchema": {"type": ["string", "null"]}},
+    "risk.payment_warning_channel": {"description": "转账风险提示渠道", "valueSchema": {"type": ["string", "null"]}},
+    "risk.payment_warning_content": {"description": "转账风险提示内容", "valueSchema": {"type": ["string", "null"]}},
+    "risk.payment_warning_received": {"description": "转账时是否收到风险提示", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.phone_card_real_name": {"description": "使用的电话卡是否实名", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.phone_warning_received": {"description": "电话联系时是否收到风险提示", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.post_report_transfers": {"description": "挂失或报案后是否继续转账", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.suspect_chat_real_name": {"description": "嫌疑人聊天账号是否实名", "valueSchema": {"type": ["boolean", "null"]}},
+    "risk.victim_chat_real_name": {"description": "被害人聊天账号是否实名", "valueSchema": {"type": ["boolean", "null"]}}
+  },
+  "entities": {}
+}

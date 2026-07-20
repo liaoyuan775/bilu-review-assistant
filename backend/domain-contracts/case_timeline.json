@@ -1,0 +1,32 @@
+{
+  "domain": "case_timeline",
+  "title": "案件经过时间线",
+  "include": ["案件概述与完整经过", "案发时间地点", "个人信息泄露", "持续联系原因"],
+  "exclude": ["逐笔转账", "逐次取现", "零散事实拼接出的完整时间线"],
+  "facts": {
+    "case.channel_changes": {"description": "联络渠道变更情况", "valueSchema": {"type": ["string", "null"]}},
+    "case.contact_method": {"description": "主要联系方式", "valueSchema": {"type": ["string", "null"]}},
+    "case.fraud_method": {"description": "诈骗手法", "valueSchema": {"type": ["string", "null"]}},
+    "case.fraud_tools": {"description": "诈骗使用的应用、网站或工具", "valueSchema": {"type": ["string", "null"]}},
+    "case.initial_channel": {"description": "案件首次接触渠道", "valueSchema": {"type": ["string", "null"]}},
+    "case.initial_contact": {"description": "首次接触经过", "valueSchema": {"type": ["string", "null"]}},
+    "case.location": {"description": "案发地点", "valueSchema": {"type": ["string", "null"]}},
+    "case.payment_reason": {"description": "付款原因", "valueSchema": {"type": ["string", "null"]}},
+    "case.payment_summary": {"description": "付款方式概述", "valueSchema": {"type": ["string", "null"]}},
+    "case.rebate_summary": {"description": "返利情况概述", "valueSchema": {"type": ["string", "null"]}},
+    "case.report_reason": {"description": "报案原因", "valueSchema": {"type": ["string", "null"]}},
+    "case.timeline": {"description": "完整连续的案件经过陈述", "valueSchema": {"type": ["string", "null"]}},
+    "case.total_loss": {"description": "案件总损失金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "motive.continued_contact_reason": {"description": "持续联系并继续操作的原因", "valueSchema": {"type": ["string", "null"]}},
+    "privacy.disclosed_information": {"description": "泄露的个人信息内容", "valueSchema": {"type": ["string", "null"]}},
+    "privacy.disclosure_occurred": {"description": "案发前是否发生个人信息泄露", "valueSchema": {"type": ["boolean", "null"]}},
+    "privacy.disclosure_reason": {"description": "个人信息泄露原因", "valueSchema": {"type": ["string", "null"]}},
+    "privacy.disclosure_time": {"description": "个人信息泄露时间", "valueSchema": {"type": ["string", "null"]}},
+    "timeline.first_contact_at": {"description": "最早联系时间", "valueSchema": {"type": ["string", "null"]}},
+    "timeline.incident_at": {"description": "案发时间", "valueSchema": {"type": ["string", "null"]}},
+    "timeline.incident_community": {"description": "案发社区或小区", "valueSchema": {"type": ["string", "null"]}},
+    "timeline.incident_district": {"description": "案发区县", "valueSchema": {"type": ["string", "null"]}},
+    "timeline.incident_street": {"description": "案发街道或道路", "valueSchema": {"type": ["string", "null"]}}
+  },
+  "entities": {}
+}

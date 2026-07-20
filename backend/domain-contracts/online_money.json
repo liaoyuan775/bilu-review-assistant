@@ -1,0 +1,43 @@
+{
+  "domain": "online_money",
+  "title": "线上资金",
+  "include": ["线上转账或扫码支付", "逐笔转账", "线上返款", "被骗金额与净损失"],
+  "exclude": ["银行取现", "现金或实物线下交付", "把取现次数当作转账笔数"],
+  "facts": {
+    "money.credentials_disclosed": {"description": "是否提供银行卡、密码或验证码等凭证", "valueSchema": {"type": ["boolean", "null"]}},
+    "money.gross_loss": {"description": "被骗总额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "money.net_loss": {"description": "实际净损失", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "money.rebate_total": {"description": "收到的返款总额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "money.remote_control_used": {"description": "是否由对方远程控制转出资金", "valueSchema": {"type": ["boolean", "null"]}},
+    "money.transfer_control_method": {"description": "被骗资金转出控制方式", "valueSchema": {"type": ["string", "null"]}},
+    "online_money.total": {"description": "线上资金转出总额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+    "online_money.transfer_count": {"description": "线上转账总笔数", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},
+    "online_money.used": {"description": "是否发生线上资金转出", "valueSchema": {"type": ["boolean", "null"]}}
+  },
+  "entities": {
+    "transfers": {
+      "description": "每笔线上转账记录",
+      "applicabilityPath": "online_money.used",
+      "countPath": "online_money.transfer_count",
+      "fields": {
+        "time": {"description": "转账时间", "valueSchema": {"type": ["string", "null"]}},
+        "amount": {"description": "转账金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+        "payment_method": {"description": "支付方式", "valueSchema": {"type": ["string", "null"]}},
+        "payer_account": {"description": "付款账户", "valueSchema": {"type": ["string", "null"]}},
+        "recipient_account": {"description": "收款账户", "valueSchema": {"type": ["string", "null"]}},
+        "transaction_id": {"description": "交易流水号", "valueSchema": {"type": ["string", "null"]}}
+      }
+    },
+    "rebates": {
+      "description": "每笔线上返款记录",
+      "applicabilityPath": "online_money.used",
+      "fields": {
+        "time": {"description": "返款时间", "valueSchema": {"type": ["string", "null"]}},
+        "amount": {"description": "返款金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
+        "method": {"description": "返款方式", "valueSchema": {"type": ["string", "null"]}},
+        "recipient_account": {"description": "返款接收账户", "valueSchema": {"type": ["string", "null"]}},
+        "transaction_id": {"description": "返款流水号", "valueSchema": {"type": ["string", "null"]}}
+      }
+    }
+  }
+}
