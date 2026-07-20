@@ -122,6 +122,16 @@ def _missing_extraction_domains(extraction: CaseExtraction) -> list[str]:
     return missing
 
 
+def _apply_template_domain_failure(task: ReviewTask, error: TemplateDomainFailure) -> None:
+    task.extractionPayload = error.partial_extraction.model_dump(mode="json")
+    task.failedDomains = list(dict.fromkeys([
+        *task.failedDomains,
+        *error.failed_domains,
+    ]))
+    task.domainErrors.update(error.domain_errors)
+    task.domainErrorDetails.update(error.domain_error_details)
+
+
 def _merge_manual_decisions(
     previous_results: list[ReviewResult],
     refreshed_results: list[ReviewResult],
@@ -256,11 +266,7 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         task.errorCode = error.code
         task.errorMessage = error.message
         if isinstance(error, TemplateDomainFailure):
-            task.extractionPayload = error.partial_extraction.model_dump(mode="json")
-            task.failedDomains = list(dict.fromkeys([
-                *task.failedDomains,
-                *error.failed_domains,
-            ]))
+            _apply_template_domain_failure(task, error)
         elif error.code == "template_domain_failed" and error.field:
             task.failedDomains = list(dict.fromkeys([*task.failedDomains, error.field]))
         if task.documentVersionId:
@@ -384,6 +390,8 @@ async def process_demo(task_id: str, demo_id: str) -> None:
         task.results = []
         task.errorCode = error.code
         task.errorMessage = error.message
+        if isinstance(error, TemplateDomainFailure):
+            _apply_template_domain_failure(task, error)
     except Exception:
         task.status = TaskStatus.FAILED
         task.results = []

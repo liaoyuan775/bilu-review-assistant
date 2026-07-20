@@ -518,6 +518,8 @@ def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monk
     monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=extraction.TemplateDomainFailure(
         partial_extraction=partial,
         failed_domains=["contact_channels"],
+        domain_errors={"contact_channels": "invalid_model_schema"},
+        domain_error_details={"contact_channels": "contact.switch_count 必须返回 integer。"},
     )))
 
     asyncio.run(review.process_upload(task.id, "脱敏测试.docx", output.getvalue()))
@@ -525,6 +527,8 @@ def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monk
     saved = store.get_task(task.id)
     assert saved.status == TaskStatus.FAILED
     assert saved.failedDomains == ["contact_channels"]
+    assert saved.domainErrors == {"contact_channels": "invalid_model_schema"}
+    assert "contact.switch_count" in saved.domainErrorDetails["contact_channels"]
     assert set(saved.extractionPayload["facts"]) == set(partial.facts)
 
 

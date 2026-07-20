@@ -10,7 +10,7 @@ from app.main import app
 from app.core.models import ManualDecision, ReviewResult, RuleStatus
 from app.storage import artifacts
 from app.storage.artifacts import ArtifactStorage
-from app.review.extraction import TemplateReviewOutcome
+from app.review.extraction import TemplateDomainFailure, TemplateReviewOutcome
 from app.storage.store import SqliteTaskStore
 from app.core.template_models import CaseExtraction
 
@@ -146,3 +146,25 @@ def test_case_02_uses_qwen_review(tmp_path, monkeypatch):
     assert task["mode"] == "qwen"
     assert task["status"] == "completed"
     review.assert_awaited_once()
+
+
+def test_qwen_demo_persists_failed_domain_and_detail(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
+    failure = TemplateDomainFailure(
+        partial_extraction=CaseExtraction(),
+        failed_domains=["case_timeline"],
+        domain_errors={"case_timeline": "invalid_model_evidence"},
+        domain_error_details={
+            "case_timeline": "privacy.disclosure_reason 引用了空答案锚点",
+        },
+    )
+
+    with patch("app.review.review.run_template_review", new=AsyncMock(side_effect=failure)):
+        created = client.post("/api/v1/reviews/demos/case-02-line-breaks", json={})
+
+    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
+    assert task["status"] == "failed"
+    assert task["failedDomains"] == ["case_timeline"]
+    assert task["domainErrors"] == {"case_timeline": "invalid_model_evidence"}
+    assert "privacy.disclosure_reason" in task["domainErrorDetails"]["case_timeline"]

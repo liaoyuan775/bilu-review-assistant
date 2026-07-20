@@ -262,6 +262,8 @@ class ReviewTask(BaseModel):
     victimProfile: VictimProfile | None = None  # 受害者档案
     results: list[ReviewResult] = Field(default_factory=list)  # 审查结果列表
     failedDomains: list[str] = Field(default_factory=list)  # 失败的域名列表
+    domainErrors: dict[str, str] = Field(default_factory=dict)  # 域级机器可读错误码
+    domainErrorDetails: dict[str, str] = Field(default_factory=dict)  # 域级字段校验详情
     acknowledgedWarnings: list[str] = Field(default_factory=list)  # 已确认的警告列表
     artifacts: list[ArtifactSummary] = Field(default_factory=list)  # 工件摘要列表
     requiredArtifacts: list[str] = Field(default_factory=list)  # 所需工件列表
