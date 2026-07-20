@@ -768,35 +768,34 @@
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "default": ""
           },
           "type": {
             "type": "string",
-            "title": "Type"
+            "title": "Type",
+            "default": ""
           },
           "filename": {
             "type": "string",
-            "title": "Filename"
+            "title": "Filename",
+            "default": ""
           },
           "sha256": {
             "type": "string",
-            "title": "Sha256"
+            "title": "Sha256",
+            "default": ""
           },
           "sizeBytes": {
             "type": "integer",
-            "minimum": 0.0,
-            "title": "Sizebytes"
+            "title": "Sizebytes",
+            "default": 0
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "id",
-          "type",
-          "filename",
-          "sha256",
-          "sizeBytes"
-        ],
-        "title": "ArtifactSummary"
+        "title": "ArtifactSummary",
+        "description": "产物摘要 — 用于前端产物列表展示和后端哈希登记。"
       },
       "Body_create_upload_review_api_v1_reviews_post": {
         "properties": {
@@ -815,13 +814,22 @@
       "CompleteReviewResponse": {
         "properties": {
           "reviewStatus": {
-            "$ref": "#/components/schemas/ReviewStatus"
+            "type": "string",
+            "title": "Reviewstatus"
           },
           "archivedAt": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Archivedat"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "reviewStatus",
@@ -836,16 +844,17 @@
             "title": "Taskid"
           },
           "status": {
-            "$ref": "#/components/schemas/TaskStatus"
+            "type": "string",
+            "title": "Status"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "taskId",
           "status"
         ],
-        "title": "CreateTaskResponse",
-        "description": "创建审查任务的即时响应（异步处理，需轮询最终结果）。"
+        "title": "CreateTaskResponse"
       },
       "DecisionRequest": {
         "properties": {
@@ -858,6 +867,7 @@
             "default": ""
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "status"
@@ -870,6 +880,7 @@
             "$ref": "#/components/schemas/ReviewResult"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "result"
@@ -880,77 +891,40 @@
         "properties": {
           "demos": {
             "items": {
-              "$ref": "#/components/schemas/DemoSummary"
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array",
             "title": "Demos"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "demos"
         ],
         "title": "DemoListResponse"
       },
-      "DemoSummary": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "pageCount": {
-            "type": "integer",
-            "title": "Pagecount"
-          },
-          "intent": {
-            "type": "string",
-            "title": "Intent"
-          },
-          "executionMode": {
-            "type": "string",
-            "enum": [
-              "mock",
-              "qwen"
-            ],
-            "title": "Executionmode"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "pageCount",
-          "intent",
-          "executionMode"
-        ],
-        "title": "DemoSummary",
-        "description": "演示样例的对外摘要。"
-      },
       "DocumentPage": {
         "properties": {
           "page": {
             "type": "integer",
-            "title": "Page"
+            "title": "Page",
+            "default": 1
           },
           "paragraphs": {
             "items": {
               "$ref": "#/components/schemas/DocumentParagraph"
             },
             "type": "array",
-            "title": "Paragraphs"
+            "title": "Paragraphs",
+            "default": []
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "page",
-          "paragraphs"
-        ],
         "title": "DocumentPage",
-        "description": "文档中的一页，包含段落列表。"
+        "description": "文档的一页（逻辑页，非 Word/PDF 物理页）。"
       },
       "DocumentParagraph": {
         "properties": {
@@ -961,17 +935,17 @@
           },
           "text": {
             "type": "string",
-            "title": "Text"
+            "title": "Text",
+            "default": ""
           },
           "sourceType": {
-            "$ref": "#/components/schemas/SourceType"
+            "$ref": "#/components/schemas/SourceType",
+            "default": "native_text"
           },
           "confidence": {
             "anyOf": [
               {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
+                "type": "number"
               },
               {
                 "type": "null"
@@ -981,13 +955,11 @@
           },
           "charStart": {
             "type": "integer",
-            "minimum": 0.0,
             "title": "Charstart",
             "default": 0
           },
           "charEnd": {
             "type": "integer",
-            "minimum": 0.0,
             "title": "Charend",
             "default": 0
           },
@@ -997,9 +969,7 @@
                 "items": {
                   "type": "number"
                 },
-                "type": "array",
-                "maxItems": 4,
-                "minItems": 4
+                "type": "array"
               },
               {
                 "type": "null"
@@ -1008,43 +978,33 @@
             "title": "Bbox"
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "text",
-          "sourceType"
-        ],
         "title": "DocumentParagraph",
-        "description": "文档中的单个段落。\n\nAttributes:\n    text:       段落原文。\n    sourceType: 来源类型，决定如何渲染（文本/表格/图像识别）。\n    confidence: 图像识别的置信度（0-1），仅 VISION 类型有效。"
+        "description": "文档的一个段落 — 证据的最小定位单元。\n\nid 字段是稳定锚点：SHA-256(文档指纹:页码:段序:来源:文本)[:24]，\n同一文档的同一段落每次解析结果一致。"
       },
       "DocumentWarning": {
         "properties": {
           "code": {
             "type": "string",
-            "title": "Code"
+            "title": "Code",
+            "default": ""
           },
           "message": {
             "type": "string",
-            "title": "Message"
+            "title": "Message",
+            "default": ""
           },
           "partName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Partname"
+            "type": "string",
+            "title": "Partname",
+            "default": ""
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "code",
-          "message"
-        ],
         "title": "DocumentWarning",
-        "description": "Recoverable document issue that must remain visible to reviewers."
+        "description": "解析过程中的非致命警告，确认后方可归档。"
       },
       "EvidenceLocation": {
         "properties": {
@@ -1063,7 +1023,7 @@
           "paragraph"
         ],
         "title": "EvidenceLocation",
-        "description": "证据在笔录中的位置（页号 + 段号，均从 1 开始计数）。"
+        "description": "证据在笔录中的位置（页号 + 段号，均从 1 开始计数）。\n\n与 ModelEvidenceLocation 结构相同但约束更宽松（无 strict Schema）。"
       },
       "FollowUpAnswerRequest": {
         "properties": {
@@ -1081,6 +1041,7 @@
             "default": "local-operator"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "question",
@@ -1098,6 +1059,7 @@
             "title": "Items"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "items"
@@ -1124,13 +1086,16 @@
             "title": "Ok"
           },
           "qwen": {
-            "$ref": "#/components/schemas/QwenHealth"
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Qwen"
           },
           "ruleCount": {
             "type": "integer",
             "title": "Rulecount"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "ok",
@@ -1155,6 +1120,7 @@
             "default": "local-operator"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "status"
@@ -1173,9 +1139,10 @@
             "default": ""
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "ManualDecision",
-        "description": "办案人员对单条规则结果的人工处置记录。"
+        "description": "人工处置决定 — 对一条规则结果的人工确认/补问/忽略。"
       },
       "ManualStatus": {
         "type": "string",
@@ -1188,86 +1155,86 @@
           "not_applicable"
         ],
         "title": "ManualStatus",
-        "description": "人工分流 — 办案人员对模型结果的最终处置状态。"
+        "description": "人工处置状态 — 与 RuleStatus 并列，不覆盖自动计算结果。"
       },
       "ParsedDocument": {
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "default": ""
           },
           "name": {
             "type": "string",
-            "title": "Name"
+            "title": "Name",
+            "default": ""
           },
           "format": {
             "type": "string",
-            "enum": [
-              "DOCX",
-              "PDF",
-              "SAMPLE"
-            ],
-            "title": "Format"
+            "title": "Format",
+            "default": ""
           },
           "pageCount": {
             "type": "integer",
-            "title": "Pagecount"
+            "title": "Pagecount",
+            "default": 0
           },
           "pages": {
             "items": {
               "$ref": "#/components/schemas/DocumentPage"
             },
             "type": "array",
-            "title": "Pages"
+            "title": "Pages",
+            "default": []
           },
           "text": {
             "type": "string",
-            "title": "Text"
+            "title": "Text",
+            "default": ""
           },
           "sizeLabel": {
             "type": "string",
-            "title": "Sizelabel"
+            "title": "Sizelabel",
+            "default": ""
           },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/DocumentWarning"
             },
             "type": "array",
-            "title": "Warnings"
+            "title": "Warnings",
+            "default": []
           },
           "questionAnswers": {
             "items": {
               "$ref": "#/components/schemas/QuestionAnswerBlock"
             },
             "type": "array",
-            "title": "Questionanswers"
+            "title": "Questionanswers",
+            "default": []
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "name",
-          "format",
-          "pageCount",
-          "pages",
-          "text",
-          "sizeLabel"
-        ],
         "title": "ParsedDocument",
-        "description": "标准化后的文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。"
+        "description": "统一解析文档 — 无论 DOCX/PDF，解析后都转为此结构。\n\n关键设计：\n- pages 中的每个 paragraph 都有稳定的 id（内容哈希），\n  作为模型证据锚点和 UI 高亮的连接键。\n- text 是全文拼接，用于正则提取和全文搜索。\n- questionAnswers 由独立的状态机重建，与原始段落并行。"
       },
       "QuestionAnswerBlock": {
         "properties": {
           "id": {
             "type": "string",
-            "title": "Id"
+            "title": "Id",
+            "default": ""
           },
           "question": {
             "type": "string",
-            "title": "Question"
+            "title": "Question",
+            "default": ""
           },
           "answer": {
             "type": "string",
-            "title": "Answer"
+            "title": "Answer",
+            "default": ""
           },
           "guidance": {
             "items": {
@@ -1285,54 +1252,14 @@
           },
           "answerClarity": {
             "type": "string",
-            "enum": [
-              "clear",
-              "blank",
-              "unclear"
-            ],
-            "title": "Answerclarity"
+            "title": "Answerclarity",
+            "default": "unknown"
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "id",
-          "question",
-          "answer",
-          "answerClarity"
-        ],
         "title": "QuestionAnswerBlock",
-        "description": "A reconstructed interview exchange with source and template guidance kept separate."
-      },
-      "QwenHealth": {
-        "properties": {
-          "configured": {
-            "type": "boolean",
-            "title": "Configured"
-          },
-          "reachable": {
-            "type": "boolean",
-            "title": "Reachable"
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model"
-          }
-        },
-        "type": "object",
-        "required": [
-          "configured",
-          "reachable",
-          "model"
-        ],
-        "title": "QwenHealth",
-        "description": "Qwen 模型连接状态快照。"
+        "description": "从段落中重建的一个问答对。\n\nguidance 字段存放从问题/答案中移除的括号模板说明和填写示例，\n避免被模型误当成案件事实。"
       },
       "ReportData": {
         "properties": {
@@ -1389,6 +1316,7 @@
             "title": "Results"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
@@ -1401,7 +1329,7 @@
           "results"
         ],
         "title": "ReportData",
-        "description": "审查报告的全部数据 — 用于打印/导出。"
+        "description": "审查报告数据 — 包含文档、被害人信息、审查结果和复核状态。"
       },
       "RetryDomainRequest": {
         "properties": {
@@ -1411,6 +1339,7 @@
             "default": "local-operator"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "RetryDomainRequest"
       },
@@ -1418,12 +1347,14 @@
         "properties": {
           "reviews": {
             "items": {
-              "$ref": "#/components/schemas/ReviewSummary"
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array",
             "title": "Reviews"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "reviews"
@@ -1434,43 +1365,50 @@
         "type": "string",
         "enum": [
           "qwen",
-          "mock",
-          "local"
+          "local",
+          "mock"
         ],
         "title": "ReviewMode",
-        "description": "审查结果的执行来源。"
+        "description": "审查执行模式。"
       },
       "ReviewResult": {
         "properties": {
           "ruleId": {
             "type": "string",
-            "title": "Ruleid"
+            "title": "Ruleid",
+            "default": ""
           },
           "ruleName": {
             "type": "string",
-            "title": "Rulename"
+            "title": "Rulename",
+            "default": ""
           },
           "category": {
             "type": "string",
-            "title": "Category"
+            "title": "Category",
+            "default": ""
           },
           "group": {
             "type": "string",
-            "title": "Group"
+            "title": "Group",
+            "default": ""
           },
           "status": {
-            "$ref": "#/components/schemas/RuleStatus"
+            "$ref": "#/components/schemas/RuleStatus",
+            "default": "missing"
           },
           "missingFacts": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Missingfacts"
+            "title": "Missingfacts",
+            "default": []
           },
           "evidence": {
             "type": "string",
-            "title": "Evidence"
+            "title": "Evidence",
+            "default": ""
           },
           "evidenceLocation": {
             "anyOf": [
@@ -1487,64 +1425,53 @@
               "$ref": "#/components/schemas/EvidenceLocation"
             },
             "type": "array",
-            "title": "Evidencelocations"
+            "title": "Evidencelocations",
+            "default": []
           },
           "evidenceAnchorIds": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Evidenceanchorids"
+            "title": "Evidenceanchorids",
+            "default": []
           },
           "reason": {
             "type": "string",
-            "title": "Reason"
+            "title": "Reason",
+            "default": ""
           },
           "suggestedQuestion": {
             "type": "string",
-            "title": "Suggestedquestion"
+            "title": "Suggestedquestion",
+            "default": ""
           },
           "advisories": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Advisories"
+            "title": "Advisories",
+            "default": []
           },
           "manualDecision": {
             "$ref": "#/components/schemas/ManualDecision"
           },
           "source": {
             "type": "string",
-            "title": "Source"
+            "title": "Source",
+            "default": ""
           },
           "severity": {
             "type": "string",
-            "enum": [
-              "high",
-              "medium",
-              "low"
-            ],
             "title": "Severity",
             "default": "medium"
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "required": [
-          "ruleId",
-          "ruleName",
-          "category",
-          "group",
-          "status",
-          "missingFacts",
-          "evidence",
-          "evidenceLocation",
-          "reason",
-          "suggestedQuestion",
-          "source"
-        ],
         "title": "ReviewResult",
-        "description": "经过确定性校验后的最终规则审查结果（含人工分流状态）。"
+        "description": "单条规则的审查结果 — 前端展示和人工处置的基本单元。\n\n包含规则状态、缺失事实、原文证据、锚点位置和建议补问。\nevidenceLocation 是历史兼容字段（只含首项位置），\n新代码应优先使用 evidenceLocations（全部位置）和 evidenceAnchorIds（稳定锚点）。"
       },
       "ReviewStatus": {
         "type": "string",
@@ -1553,45 +1480,7 @@
           "archived"
         ],
         "title": "ReviewStatus",
-        "description": "审查复核状态 — 控制 UI 是否允许修改操作。"
-      },
-      "ReviewSummary": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "documentName": {
-            "type": "string",
-            "title": "Documentname"
-          },
-          "createdAt": {
-            "type": "string",
-            "title": "Createdat"
-          },
-          "updatedAt": {
-            "type": "string",
-            "title": "Updatedat"
-          },
-          "reviewStatus": {
-            "$ref": "#/components/schemas/ReviewStatus"
-          },
-          "pendingCount": {
-            "type": "integer",
-            "title": "Pendingcount"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "documentName",
-          "createdAt",
-          "updatedAt",
-          "reviewStatus",
-          "pendingCount"
-        ],
-        "title": "ReviewSummary",
-        "description": "审查历史列表中的单条摘要。"
+        "description": "复核整体状态。"
       },
       "ReviewTask": {
         "properties": {
@@ -1761,12 +1650,13 @@
             "title": "Errormessage"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "mode"
         ],
         "title": "ReviewTask",
-        "description": "审查任务 — 系统的核心聚合根，包含一份笔录的全部审查状态。"
+        "description": "审查任务 — 全系统的核心聚合根。\n\n包含从上传到归档的完整状态。前端轮询此对象获取进度和结果。\n通过 revision 字段实现乐观锁并发控制。\n整个对象作为 payload_json 序列化到 SQLite review_tasks 表。"
       },
       "ReviewTimings": {
         "properties": {
@@ -1811,20 +1701,23 @@
             "title": "Totalms"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "ReviewTimings",
-        "description": "审查任务各阶段的耗时统计（毫秒）。"
+        "description": "各阶段耗时统计（毫秒）。"
       },
       "RuleListResponse": {
         "properties": {
           "rules": {
             "items": {
-              "$ref": "#/components/schemas/RuleSummary"
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array",
             "title": "Rules"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "rules"
@@ -1842,66 +1735,19 @@
           "needs_manual_review"
         ],
         "title": "RuleStatus",
-        "description": "单条规则的审查结论状态。"
-      },
-      "RuleSummary": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "category": {
-            "type": "string",
-            "title": "Category"
-          },
-          "group": {
-            "type": "string",
-            "title": "Group"
-          },
-          "scope": {
-            "type": "string",
-            "title": "Scope"
-          },
-          "requiredFacts": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Requiredfacts"
-          },
-          "source": {
-            "type": "string",
-            "title": "Source"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "category",
-          "group",
-          "scope",
-          "requiredFacts",
-          "source"
-        ],
-        "title": "RuleSummary",
-        "description": "对前端暴露的规则摘要（省略 triggers、requiredFacts 详情等内部字段）。"
+        "description": "单条规则的状态 — 由规则引擎计算得出，人工处置不改变此值。"
       },
       "SourceType": {
         "type": "string",
         "enum": [
           "native_text",
           "table",
-          "vision",
           "header",
-          "footer"
+          "footer",
+          "vision"
         ],
         "title": "SourceType",
-        "description": "段落内容来源类型 — 决定该段文本的可信度与展示方式。"
+        "description": "段落来源类型 — 用于 UI 标注和锚点追溯。"
       },
       "TaskStatus": {
         "type": "string",
@@ -1987,6 +1833,17 @@
             ],
             "title": "Age"
           },
+          "birthDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birthdate"
+          },
           "ethnicity": {
             "anyOf": [
               {
@@ -2008,6 +1865,28 @@
               }
             ],
             "title": "Idnumber"
+          },
+          "occupation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occupation"
+          },
+          "education": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Education"
           },
           "employer": {
             "anyOf": [
@@ -2031,6 +1910,17 @@
             ],
             "title": "Address"
           },
+          "registeredAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registeredaddress"
+          },
           "contact": {
             "anyOf": [
               {
@@ -2041,6 +1931,17 @@
               }
             ],
             "title": "Contact"
+          },
+          "isNpcRepresentative": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isnpcrepresentative"
           }
         },
         "type": "object",
@@ -2062,6 +1963,7 @@
             "default": "local-operator"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "codes"

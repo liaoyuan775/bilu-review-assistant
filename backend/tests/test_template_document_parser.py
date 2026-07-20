@@ -12,8 +12,8 @@ from docx import Document
 from docx.shared import Inches
 from lxml import etree
 
-from app.services.parser import parse_document
-from app.services.openxml import read_docx_parts
+from app.parsing.parser import parse_document
+from app.parsing.openxml import read_docx_parts
 
 
 PNG_1X1 = base64.b64decode(
@@ -87,6 +87,11 @@ def _docx_with_body_content_control() -> bytes:
     return _rewrite_docx(content, {"word/document.xml": rewritten})
 
 
+def _docx_with_document_xml(xml: str) -> bytes:
+    content = _simple_docx("placeholder")
+    return _rewrite_docx(content, {"word/document.xml": xml.encode("utf-8")})
+
+
 def _pdf_with_native_text() -> bytes:
     document = fitz.open()
     page = document.new_page()
@@ -147,6 +152,84 @@ def test_docx_parser_preserves_body_content_controls_in_reading_order():
     parsed = asyncio.run(parse_document("template.docx", _docx_with_body_content_control()))
 
     assert parsed.text == "内容控件中的关键询问事实"
+
+
+def test_docx_parser_transcribes_text_checkbox_glyphs_in_question_answer_order():
+    content = _simple_docx(
+        "问：你通过哪些方式联系？",
+        "答：☑ 电话 ☐ 短信 ☒ APP □ 其他",
+    )
+
+    parsed = asyncio.run(parse_document("record.docx", content))
+
+    assert parsed.questionAnswers[0].answer == "[选中] 电话 [未选] 短信 [选中] APP [未选] 其他"
+
+
+def test_docx_parser_preserves_wingdings_checkbox_symbols():
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p><w:r><w:t>问：你选择哪些渠道？</w:t></w:r></w:p>
+        <w:p>
+          <w:r><w:t>答：</w:t></w:r>
+          <w:r><w:sym w:font="Wingdings 2" w:char="00A3"/></w:r>
+          <w:r><w:t> 电话 </w:t></w:r>
+          <w:r><w:sym w:font="Wingdings 2" w:char="0052"/></w:r>
+          <w:r><w:t> APP</w:t></w:r>
+        </w:p>
+        <w:sectPr/>
+      </w:body>
+    </w:document>"""
+
+    parsed = asyncio.run(parse_document("record.docx", _docx_with_document_xml(xml)))
+
+    assert parsed.questionAnswers[0].answer == "[未选] 电话 [选中] APP"
+
+
+def test_docx_parser_transcribes_content_control_and_legacy_form_checkboxes():
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document
+        xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml">
+      <w:body>
+        <w:p><w:r><w:t>问：你选择哪些渠道？</w:t></w:r></w:p>
+        <w:p>
+          <w:r><w:t>答：</w:t></w:r>
+          <w:sdt>
+            <w:sdtPr><w14:checkbox><w14:checked w14:val="1"/></w14:checkbox></w:sdtPr>
+            <w:sdtContent><w:r><w:t>☒</w:t></w:r></w:sdtContent>
+          </w:sdt>
+          <w:r><w:t> 电话 </w:t></w:r>
+          <w:r><w:fldChar w:fldCharType="begin"><w:ffData><w:checkBox><w:default w:val="0"/></w:checkBox></w:ffData></w:fldChar></w:r>
+          <w:r><w:t> 短信</w:t></w:r>
+        </w:p>
+        <w:sectPr/>
+      </w:body>
+    </w:document>"""
+
+    parsed = asyncio.run(parse_document("record.docx", _docx_with_document_xml(xml)))
+
+    assert parsed.questionAnswers[0].answer == "[选中] 电话 [未选] 短信"
+
+
+def test_docx_parser_keeps_unknown_checkbox_state_and_emits_warning():
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p><w:r><w:t>问：你选择哪些渠道？</w:t></w:r></w:p>
+        <w:p>
+          <w:r><w:t>答：</w:t></w:r>
+          <w:r><w:sym w:font="Unknown Checkbox Font" w:char="FFFF"/></w:r>
+          <w:r><w:t> 其他</w:t></w:r>
+        </w:p>
+        <w:sectPr/>
+      </w:body>
+    </w:document>"""
+
+    parsed = asyncio.run(parse_document("record.docx", _docx_with_document_xml(xml)))
+
+    assert parsed.questionAnswers[0].answer == "[状态不明] 其他"
+    assert any(warning.code == "checkbox_state_unknown" for warning in parsed.warnings)
 
 
 def test_docx_reader_ignores_unreferenced_hidden_header_and_media_parts():

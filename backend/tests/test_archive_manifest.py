@@ -2,11 +2,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app import store
+from app.storage import store
 from app.main import app
-from app.services import artifacts
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.storage import artifacts
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)
@@ -15,7 +15,7 @@ client = TestClient(app)
 def _generated_demo(tmp_path, monkeypatch) -> tuple[str, dict]:
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
     monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
-    created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
     task_id = created.json()["taskId"]
     client.post(
         f"/api/v1/reviews/{task_id}/issues/RISK-001/actions",

@@ -30,6 +30,8 @@ describe("workflow data", () => {
     expect(workflowNodes.find((node) => node.id === "recognize")?.data.process).toContain("多模态");
     expect(workflowNodes.find((node) => node.id === "template-review")?.data.title).toContain("模板");
     expect(workflowNodes.find((node) => node.id === "evidence-validation")?.data.process).toContain("证据范围");
+    expect(workflowNodes.find((node) => node.id === "manual-action")?.data.process).toContain("补问并重审");
+    expect(workflowNodes.find((node) => node.id === "manual-action")?.data.process).not.toContain("确认问题");
 
     for (const node of workflowNodes) {
       expect(node.data.title).toBeTruthy();

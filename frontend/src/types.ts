@@ -52,6 +52,15 @@ export interface QuestionAnswerBlock {
   answerClarity: "clear" | "blank" | "unclear";
 }
 
+export interface EvidenceBlock {
+  id: string;
+  kind: "qa" | "text";
+  text: string;
+  paragraphIds: string[];
+  page: number | null;
+  paragraph: number | null;
+}
+
 /** 标准化文档 — 统一 PDF/DOCX/SAMPLE 的内部表示。 */
 export interface ParsedDocument {
   id: string;
@@ -63,6 +72,7 @@ export interface ParsedDocument {
   sizeLabel: string;
   warnings: DocumentWarning[];
   questionAnswers: QuestionAnswerBlock[];
+  evidenceBlocks?: EvidenceBlock[];
 }
 
 /** 被害人信息 — 全部字段可为空。 */
@@ -70,11 +80,16 @@ export interface VictimProfile {
   name: string | null;
   gender: string | null;
   age: number | null;
+  birthDate: string | null;
   ethnicity: string | null;
   idNumber: string | null;
+  occupation: string | null;
+  education: string | null;
   employer: string | null;
   address: string | null;
+  registeredAddress: string | null;
   contact: string | null;
+  isNpcRepresentative: boolean | null;
 }
 
 /** 证据定位 — 页号+段号，均从 1 开始。 */
@@ -121,6 +136,7 @@ export interface ArtifactSummary {
 export interface ReviewTask {
   id: string;
   mode: ReviewMode;
+  demoId?: string | null;
   status: TaskStatus;
   document: ParsedDocument | null;
   documentId: string | null;

@@ -44,7 +44,7 @@
       "id": "gold-01-procedure",
       "name": "权利义务和笔录核对",
       "pdf": "pdf/gold-01-procedure.pdf",
-      "questionCount": 21
+      "questionCount": 20
     },
     {
       "docx": "docx/gold-02-timeline.docx",
@@ -52,16 +52,16 @@
         "case_timeline"
       ],
       "expectedRuleStatuses": {
-        "CASE-001": "covered",
-        "CASE-002": "covered",
+        "CASE-001": "incomplete",
+        "CASE-002": "incomplete",
         "CASH-001": "needs_manual_review",
         "CASH-002": "needs_manual_review",
         "CASH-003": "needs_manual_review",
         "CONTACT-001": "missing",
         "EVID-001": "needs_manual_review",
         "EVID-002": "missing",
-        "EXTRA-001": "missing",
-        "LEAD-001": "incomplete",
+        "EXTRA-001": "covered",
+        "LEAD-001": "missing",
         "META-001": "missing",
         "META-002": "missing",
         "MONEY-001": "missing",
@@ -90,7 +90,7 @@
       "id": "gold-02-timeline",
       "name": "接触转账报案时间线",
       "pdf": "pdf/gold-02-timeline.pdf",
-      "questionCount": 24
+      "questionCount": 16
     },
     {
       "docx": "docx/gold-03-contact-switch.docx",
@@ -182,7 +182,7 @@
       "id": "gold-04-risk-warning",
       "name": "支付风险提示与证据",
       "pdf": "pdf/gold-04-risk-warning.pdf",
-      "questionCount": 18
+      "questionCount": 17
     },
     {
       "docx": "docx/gold-05-online-money.docx",
@@ -211,7 +211,7 @@
         "PREV-001": "missing",
         "PREV-002": "missing",
         "PREV-003": "missing",
-        "PRIV-001": "incomplete",
+        "PRIV-001": "missing",
         "PROC-001": "missing",
         "PROC-002": "missing",
         "PROC-003": "missing",
@@ -228,7 +228,7 @@
       "id": "gold-05-online-money",
       "name": "线上转账与返利",
       "pdf": "pdf/gold-05-online-money.pdf",
-      "questionCount": 12
+      "questionCount": 11
     },
     {
       "docx": "docx/gold-06-offline-delivery.docx",
@@ -277,13 +277,13 @@
       "questionCount": 13
     },
     {
-      "docx": "docx/gold-07-special.docx",
+      "docx": "docx/gold-07-extra.docx",
       "domains": [
-        "special_scenarios"
+        "case_timeline"
       ],
       "expectedRuleStatuses": {
-        "CASE-001": "missing",
-        "CASE-002": "missing",
+        "CASE-001": "incomplete",
+        "CASE-002": "incomplete",
         "CASH-001": "needs_manual_review",
         "CASH-002": "needs_manual_review",
         "CASH-003": "needs_manual_review",
@@ -298,12 +298,12 @@
         "MONEY-002": "missing",
         "MONEY-003": "missing",
         "MONEY-004": "needs_manual_review",
-        "MOTIVE-001": "missing",
+        "MOTIVE-001": "covered",
         "OFFLINE-001": "needs_manual_review",
         "PREV-001": "missing",
         "PREV-002": "missing",
         "PREV-003": "missing",
-        "PRIV-001": "missing",
+        "PRIV-001": "covered",
         "PROC-001": "missing",
         "PROC-002": "missing",
         "PROC-003": "missing",
@@ -314,13 +314,13 @@
         "RISK-002": "missing",
         "RISK-003": "needs_manual_review",
         "RISK-004": "needs_manual_review",
-        "TIME-001": "missing",
-        "TIME-002": "missing"
+        "TIME-001": "covered",
+        "TIME-002": "covered"
       },
-      "id": "gold-07-special",
-      "name": "特殊诈骗场景",
-      "pdf": "pdf/gold-07-special.pdf",
-      "questionCount": 3
+      "id": "gold-07-extra",
+      "name": "其他补充事实",
+      "pdf": "pdf/gold-07-extra.pdf",
+      "questionCount": 16
     },
     {
       "docx": "docx/gold-08-case-procedure.docx",
@@ -329,16 +329,16 @@
         "case_timeline"
       ],
       "expectedRuleStatuses": {
-        "CASE-001": "covered",
-        "CASE-002": "covered",
+        "CASE-001": "incomplete",
+        "CASE-002": "incomplete",
         "CASH-001": "needs_manual_review",
         "CASH-002": "needs_manual_review",
         "CASH-003": "needs_manual_review",
         "CONTACT-001": "missing",
         "EVID-001": "needs_manual_review",
         "EVID-002": "missing",
-        "EXTRA-001": "missing",
-        "LEAD-001": "incomplete",
+        "EXTRA-001": "covered",
+        "LEAD-001": "missing",
         "META-001": "covered",
         "META-002": "covered",
         "MONEY-001": "missing",
@@ -367,7 +367,7 @@
       "id": "gold-08-case-procedure",
       "name": "身份程序与案情概述",
       "pdf": "pdf/gold-08-case-procedure.pdf",
-      "questionCount": 45
+      "questionCount": 36
     },
     {
       "docx": "docx/gold-09-contact-risk.docx",
@@ -414,7 +414,7 @@
       "id": "gold-09-contact-risk",
       "name": "联系渠道与风险提示",
       "pdf": "pdf/gold-09-contact-risk.pdf",
-      "questionCount": 27
+      "questionCount": 26
     },
     {
       "docx": "docx/gold-10-online-timeline.docx",
@@ -423,16 +423,16 @@
         "online_money"
       ],
       "expectedRuleStatuses": {
-        "CASE-001": "covered",
-        "CASE-002": "covered",
+        "CASE-001": "incomplete",
+        "CASE-002": "incomplete",
         "CASH-001": "needs_manual_review",
         "CASH-002": "needs_manual_review",
         "CASH-003": "needs_manual_review",
         "CONTACT-001": "missing",
         "EVID-001": "needs_manual_review",
         "EVID-002": "missing",
-        "EXTRA-001": "missing",
-        "LEAD-001": "incomplete",
+        "EXTRA-001": "covered",
+        "LEAD-001": "missing",
         "META-001": "missing",
         "META-002": "missing",
         "MONEY-001": "covered",
@@ -461,7 +461,7 @@
       "id": "gold-10-online-timeline",
       "name": "线上资金与时间线",
       "pdf": "pdf/gold-10-online-timeline.pdf",
-      "questionCount": 36
+      "questionCount": 27
     },
     {
       "docx": "docx/gold-11-offline-timeline.docx",
@@ -470,16 +470,16 @@
         "offline_delivery"
       ],
       "expectedRuleStatuses": {
-        "CASE-001": "covered",
-        "CASE-002": "covered",
+        "CASE-001": "incomplete",
+        "CASE-002": "incomplete",
         "CASH-001": "covered",
         "CASH-002": "covered",
         "CASH-003": "covered",
         "CONTACT-001": "missing",
         "EVID-001": "needs_manual_review",
         "EVID-002": "missing",
-        "EXTRA-001": "missing",
-        "LEAD-001": "incomplete",
+        "EXTRA-001": "covered",
+        "LEAD-001": "missing",
         "META-001": "missing",
         "META-002": "missing",
         "MONEY-001": "missing",
@@ -508,7 +508,7 @@
       "id": "gold-11-offline-timeline",
       "name": "线下交付与时间线",
       "pdf": "pdf/gold-11-offline-timeline.pdf",
-      "questionCount": 37
+      "questionCount": 29
     },
     {
       "docx": "docx/gold-12-complete.docx",
@@ -518,8 +518,7 @@
         "contact_channels",
         "risk_and_evidence",
         "online_money",
-        "offline_delivery",
-        "special_scenarios"
+        "offline_delivery"
       ],
       "expectedRuleStatuses": {
         "CASE-001": "covered",
@@ -560,7 +559,7 @@
       "id": "gold-12-complete",
       "name": "全业务域完整问询",
       "pdf": "pdf/gold-12-complete.pdf",
-      "questionCount": 99
+      "questionCount": 86
     }
   ],
   "mutations": [
@@ -930,12 +929,12 @@
       "ruleId": "CASH-003"
     },
     {
-      "expectedStatus": "missing",
+      "expectedStatus": "needs_manual_review",
       "kind": "missing",
       "ruleId": "CASH-003"
     },
     {
-      "expectedStatus": "incomplete",
+      "expectedStatus": "needs_manual_review",
       "kind": "incomplete",
       "ruleId": "CASH-003"
     },
@@ -1150,12 +1149,12 @@
       "ruleId": "OFFLINE-001"
     },
     {
-      "expectedStatus": "missing",
+      "expectedStatus": "needs_manual_review",
       "kind": "missing",
       "ruleId": "OFFLINE-001"
     },
     {
-      "expectedStatus": "incomplete",
+      "expectedStatus": "needs_manual_review",
       "kind": "incomplete",
       "ruleId": "OFFLINE-001"
     },

@@ -1,12 +1,13 @@
 import hashlib
+import json
 import sqlite3
 
 import pytest
 
-from app.errors import AppError
-from app.models import ReviewMode, ReviewStatus, ReviewTask
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.core.errors import AppError
+from app.core.models import ReviewMode, ReviewResult, ReviewStatus, ReviewTask
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 def test_schema_migration_is_versioned_and_idempotent(tmp_path):
@@ -49,6 +50,23 @@ def test_stale_task_snapshot_cannot_overwrite_newer_archive_state(tmp_path):
 
     assert error.value.code == "task_revision_conflict"
     assert store.get_task(task.id).reviewStatus.value == "archived"
+
+
+def test_legacy_evidence_location_does_not_break_task_history(tmp_path):
+    database = tmp_path / "reviews.db"
+    store = SqliteTaskStore(database)
+    task = store.save_task(ReviewTask(mode=ReviewMode.QWEN, results=[ReviewResult(ruleId="CASE-001")]))
+
+    payload = task.model_dump(mode="json")
+    payload["results"][0]["evidenceLocation"] = {"page": 1, "paragraph": 2}
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE review_tasks SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), task.id),
+        )
+
+    assert store.get_task(task.id).results[0].ruleId == "CASE-001"
+    assert store.list_tasks()[0].results[0].ruleId == "CASE-001"
 
 
 def test_review_run_children_are_rolled_back_when_issue_persistence_fails(tmp_path):

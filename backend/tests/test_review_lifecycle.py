@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 from docx import Document
 
-from app.errors import AppError
-from app.models import (
+from app.core.errors import AppError
+from app.core.models import (
     ArtifactSummary,
     DocumentPage,
     DocumentParagraph,
@@ -23,19 +23,19 @@ from app.models import (
     SourceType,
     TaskStatus,
 )
-from app.services.archive import assert_archive_ready
-from app.services import review, template_extraction
-from app.services.template_extraction import (
+from app.reporting.archive import assert_archive_ready
+from app.review import review, extraction
+from app.review.extraction import (
     DOMAIN_ENTITY_FIELDS,
     DOMAIN_FACT_PATHS,
     DOMAIN_ORDER,
     TemplateReviewOutcome,
 )
-from app.services.artifacts import ArtifactStorage
-from app.services import artifacts
-from app import store
-from app.store import SqliteTaskStore
-from app.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
+from app.storage.artifacts import ArtifactStorage
+from app.storage import artifacts
+from app.storage import store
+from app.storage.store import SqliteTaskStore
+from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
 from app.main import app
 
 
@@ -113,7 +113,7 @@ def _complete_extraction() -> CaseExtraction:
                 "status": RuleStatus.MISSING,
                 "manualDecision": ManualDecision(status=ManualStatus.PENDING),
             })),
-            "archive_pending_high_risk",
+            "archive_pending_issues",
         ),
     ],
 )
@@ -137,6 +137,77 @@ def test_acknowledged_warning_and_resolved_high_risk_issue_can_archive():
     })
 
     assert_archive_ready(deepcopy(task))
+
+
+@pytest.mark.parametrize("severity", ["low", "medium", "high"])
+@pytest.mark.parametrize(
+    "manual_status",
+    [ManualStatus.PENDING, ManualStatus.SUPPLEMENTED, ManualStatus.CONFIRMED],
+)
+def test_every_unresolved_actionable_issue_blocks_archive(severity, manual_status):
+    task = _task()
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.INCOMPLETE,
+        "severity": severity,
+        "manualDecision": ManualDecision(status=manual_status, reason="尚未闭环。"),
+    })
+
+    with pytest.raises(AppError) as error:
+        assert_archive_ready(task)
+
+    assert error.value.code == "archive_pending_issues"
+
+
+@pytest.mark.parametrize(
+    "manual_status",
+    [ManualStatus.RESOLVED, ManualStatus.NOT_APPLICABLE, ManualStatus.IGNORED],
+)
+def test_terminal_decisions_with_reason_allow_archive(manual_status):
+    task = _task()
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.MISSING,
+        "severity": "low",
+        "manualDecision": ManualDecision(status=manual_status, reason="已人工核对并记录依据。"),
+    })
+
+    assert_archive_ready(task)
+
+
+def test_bulk_demo_pass_resolves_actionable_items_acknowledges_warnings_and_invalidates_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.demoId = "case-01-baseline"
+    task.document.warnings = [DocumentWarning(code="media_corrupt", message="测试告警")]
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.MISSING,
+        "manualDecision": ManualDecision(status=ManualStatus.PENDING),
+    })
+    task.artifacts.insert(0, ArtifactSummary(
+        id="original", type="original", filename="source.docx", sha256="b" * 64, sizeBytes=10,
+    ))
+    store.save_task(task)
+    real_save = review.save_task_with_events
+    save_calls = 0
+
+    def tracked_save(updated, events):
+        nonlocal save_calls
+        save_calls += 1
+        return real_save(updated, events)
+
+    monkeypatch.setattr(review, "save_task_with_events", tracked_save)
+
+    updated = review.pass_demo_review(task.id)
+
+    assert save_calls == 1
+    assert updated.results[0].manualDecision == ManualDecision(
+        status=ManualStatus.RESOLVED,
+        reason="脱敏演示：一键测试通过",
+    )
+    assert updated.acknowledgedWarnings == ["media_corrupt"]
+    assert [artifact.type for artifact in updated.artifacts] == ["original"]
+    events = store.STORE.get_audit_snapshot(task.id)["events"]
+    assert any(event["event_type"] == "resolved" and event["actor_id"] == "demo-operator" for event in events)
+    assert any(event["event_type"] == "warnings_acknowledged" for event in events)
 
 
 def test_issue_action_appends_event_and_archived_task_is_read_only(tmp_path, monkeypatch):
@@ -358,7 +429,7 @@ def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
     assert updated.status == TaskStatus.COMPLETED
     assert updated.failedDomains == []
     assert run.await_args.kwargs["domains"] == DOMAIN_ORDER
-    assert len(updated.extractionPayload["facts"]) == 92
+    assert len(updated.extractionPayload["facts"]) == 80
     assert len(updated.results) == 34
     assert store.STORE.get_audit_snapshot(task.id)["events"][-1]["event_type"] == "domain_retried"
 
@@ -444,9 +515,11 @@ def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monk
         partial.facts.pop(path)
     for entity_type in DOMAIN_ENTITY_FIELDS["contact_channels"]:
         partial.entities.pop(entity_type)
-    monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=template_extraction.TemplateDomainFailure(
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(side_effect=extraction.TemplateDomainFailure(
         partial_extraction=partial,
         failed_domains=["contact_channels"],
+        domain_errors={"contact_channels": "invalid_model_schema"},
+        domain_error_details={"contact_channels": "contact.switch_count 必须返回 integer。"},
     )))
 
     asyncio.run(review.process_upload(task.id, "脱敏测试.docx", output.getvalue()))
@@ -454,6 +527,8 @@ def test_upload_persists_successful_domains_when_one_domain_fails(tmp_path, monk
     saved = store.get_task(task.id)
     assert saved.status == TaskStatus.FAILED
     assert saved.failedDomains == ["contact_channels"]
+    assert saved.domainErrors == {"contact_channels": "invalid_model_schema"}
+    assert "contact.switch_count" in saved.domainErrorDetails["contact_channels"]
     assert set(saved.extractionPayload["facts"]) == set(partial.facts)
 
 

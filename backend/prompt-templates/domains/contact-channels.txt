@@ -1,0 +1,3 @@
+电话或短信号码属于有效的首次联系标识，可写入 contact.initial_account，不得因为没有聊天账号而判首次账号缺失。
+仅当原文明确使用聊天软件时 contact.chat_used 才为 true；“无法判断是否使用过”返回 unknown。
+contact_switches.important_information 同时承载账号、人员和联系详情，不重复生成 details 字段。

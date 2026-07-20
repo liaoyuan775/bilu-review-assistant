@@ -1,9 +1,24 @@
-from app.models import DocumentPage, DocumentParagraph, SourceType
-from app.services.question_answer import reconstruct_question_answers
+from app.core.models import DocumentPage, DocumentParagraph, EvidenceBlock, ParsedDocument, SourceType
+from app.parsing.question_answer import reconstruct_evidence_blocks, reconstruct_question_answers
 
 
 def _paragraph(block_id: str, text: str) -> DocumentParagraph:
     return DocumentParagraph(id=block_id, text=text, sourceType=SourceType.NATIVE_TEXT)
+
+
+def test_evidence_block_model_defaults_and_serializes():
+    block = EvidenceBlock(
+        id="qa-1",
+        kind="qa",
+        text="问：问题\n答：答案",
+        paragraphIds=["p1", "p2"],
+        page=1,
+        paragraph=2,
+    )
+
+    assert block.kind == "qa"
+    assert block.paragraphIds == ["p1", "p2"]
+    assert ParsedDocument().evidenceBlocks == []
 
 
 def test_reconstructs_multiple_question_answers_from_one_paragraph():
@@ -115,3 +130,57 @@ def test_marks_an_unknown_response_as_unclear_not_blank():
 
     assert block.answer == "我记不清了。"
     assert block.answerClarity == "unclear"
+
+
+def test_question_continuation_before_answer_is_preserved_in_one_block():
+    pages = [DocumentPage(
+        page=1,
+        paragraphs=[
+            _paragraph("q1", "问：请说明对方如何联系你，"),
+            _paragraph("q2", "以及之后使用了哪些应用？"),
+            _paragraph("a1", "答：先打电话，之后使用测试应用。"),
+        ],
+    )]
+
+    qa = reconstruct_question_answers(pages)[0]
+    evidence = reconstruct_evidence_blocks(pages)
+
+    assert qa.question == "请说明对方如何联系你， 以及之后使用了哪些应用？"
+    assert len(evidence) == 1
+    assert evidence[0].kind == "qa"
+    assert evidence[0].paragraphIds == ["q1", "q2", "a1"]
+    assert "问：请说明对方如何联系你， 以及之后使用了哪些应用？" in evidence[0].text
+    assert "答：先打电话，之后使用测试应用。" in evidence[0].text
+
+
+def test_non_qa_text_stays_in_order_before_a_qa_block():
+    pages = [DocumentPage(
+        page=1,
+        paragraphs=[
+            _paragraph("p1", "询问地点：测试派出所"),
+            _paragraph("q1", "问：是否清楚？"),
+            _paragraph("a1", "答：清楚。"),
+        ],
+    )]
+
+    evidence = reconstruct_evidence_blocks(pages)
+
+    assert [block.kind for block in evidence] == ["text", "qa"]
+    assert evidence[0].text == "询问地点：测试派出所"
+    assert evidence[0].paragraphIds == ["p1"]
+
+
+def test_one_qa_has_one_stable_evidence_block_id():
+    pages = [DocumentPage(
+        page=1,
+        paragraphs=[
+            _paragraph("q1", "问：问题？"),
+            _paragraph("a1", "答：答案。"),
+        ],
+    )]
+
+    first = reconstruct_evidence_blocks(pages)
+    second = reconstruct_evidence_blocks(pages)
+
+    assert len(first) == 1
+    assert first[0].id == second[0].id

@@ -1,4 +1,5 @@
 import type { ReviewResult, ReviewTask, RuleStatus } from "./types";
+import { isManualDecisionClosed } from "./reviewActionPolicy";
 
 
 export const actionableStatuses = new Set<RuleStatus>([
@@ -8,6 +9,10 @@ export const actionableStatuses = new Set<RuleStatus>([
   "needs_manual_review",
 ]);
 
+export const summaryStatuses: RuleStatus[] = [
+  "missing", "incomplete", "inconsistent", "needs_manual_review", "not_applicable", "covered",
+];
+
 const statusPriority: Record<RuleStatus, number> = {
   missing: 0,
   inconsistent: 1,
@@ -16,6 +21,19 @@ const statusPriority: Record<RuleStatus, number> = {
   covered: 4,
   not_applicable: 5,
 };
+
+const severityPriority: Record<ReviewResult["severity"], number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
+
+export type ReviewResultSectionKey = "open" | "closed" | "not_applicable" | "covered";
+
+export interface ReviewResultSection {
+  key: ReviewResultSectionKey;
+  groups: ReturnType<typeof groupTemplateResults>;
+}
 
 export const groupTemplateResults = (results: ReviewResult[]) => {
   const groups = new Map<string, ReviewResult[]>();
@@ -30,6 +48,26 @@ export const groupTemplateResults = (results: ReviewResult[]) => {
   }));
 };
 
+const resultSection = (result: ReviewResult): ReviewResultSectionKey => {
+  if (result.status === "covered") return "covered";
+  if (result.status === "not_applicable") return "not_applicable";
+  return isManualDecisionClosed(result) ? "closed" : "open";
+};
+
+export const sectionTemplateResults = (results: ReviewResult[]): ReviewResultSection[] => {
+  const sectionOrder: ReviewResultSectionKey[] = ["open", "closed", "not_applicable", "covered"];
+  return sectionOrder.flatMap((key) => {
+    const sorted = results
+      .filter((result) => resultSection(result) === key)
+      .sort((left, right) =>
+        severityPriority[left.severity] - severityPriority[right.severity]
+        || statusPriority[left.status] - statusPriority[right.status],
+      );
+    if (sorted.length === 0) return [];
+    return [{ key, groups: groupTemplateResults(sorted) }];
+  });
+};
+
 export const countTemplateStatuses = (results: ReviewResult[]): Record<RuleStatus, number> => {
   const counts: Record<RuleStatus, number> = {
     covered: 0,
@@ -41,6 +79,13 @@ export const countTemplateStatuses = (results: ReviewResult[]): Record<RuleStatu
   };
   results.forEach((result) => { counts[result.status] += 1; });
   return counts;
+};
+
+export const processingLabel = (item: ReviewResult): string | null => {
+  if (item.status === "covered") return null;
+  if (item.status === "not_applicable") return "自动判定";
+  if (isManualDecisionClosed(item)) return "已闭环";
+  return item.manualDecision.status === "supplemented" ? "补问中" : "待处理";
 };
 
 const pending = (result: ReviewResult) =>
@@ -57,7 +102,7 @@ export const nextActionableIssueId = (results: ReviewResult[], currentRuleId: st
 };
 
 export interface ArchiveBlocker {
-  code: "failed_domains" | "unresolved_warnings" | "missing_artifacts" | "pending_high_risk";
+  code: "failed_domains" | "unresolved_warnings" | "missing_artifacts" | "unresolved_issues";
   label: string;
   count: number;
 }
@@ -78,15 +123,11 @@ export const archiveBlockers = (task: ReviewTask): ArchiveBlocker[] => {
   if (missingArtifacts.length > 0) {
     blockers.push({ code: "missing_artifacts", label: "待生成归档产物", count: missingArtifacts.length });
   }
-  const pendingHighRisk = task.results.filter((result) =>
-    result.severity === "high"
-    && actionableStatuses.has(result.status)
-    && !["resolved", "not_applicable"].includes(result.manualDecision.status)
-    && !(result.manualDecision.status === "ignored" && Boolean(result.manualDecision.reason.trim())),
+  const unresolvedIssues = task.results.filter((result) =>
+    actionableStatuses.has(result.status) && !isManualDecisionClosed(result),
   );
-  if (pendingHighRisk.length > 0) {
-    blockers.push({ code: "pending_high_risk", label: "未闭环高风险问题", count: pendingHighRisk.length });
+  if (unresolvedIssues.length > 0) {
+    blockers.push({ code: "unresolved_issues", label: "未闭环问题", count: unresolvedIssues.length });
   }
   return blockers;
 };
-

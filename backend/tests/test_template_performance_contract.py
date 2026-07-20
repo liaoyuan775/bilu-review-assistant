@@ -3,9 +3,10 @@ import importlib
 
 import pytest
 
-from app.models import RuleStatus
-from app.services import template_extraction
-from app.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
+from app.core.models import RuleStatus
+from app.core import config
+from app.review import extraction as extraction_mod
+from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
 
 
 class _DummyClient:
@@ -19,12 +20,12 @@ class _DummyClient:
 def _domain_result(domain: str) -> CaseExtraction:
     return CaseExtraction(facts={
         path: ExtractedFact(clarity="missing")
-        for path in template_extraction.DOMAIN_FACT_PATHS[domain]
+        for path in extraction_mod.DOMAIN_FACT_PATHS[domain]
     })
 
 
-def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monkeypatch):
-    domains = template_extraction.DOMAIN_ORDER
+def test_independent_domains_use_configured_concurrency_without_losing_facts(monkeypatch):
+    domains = extraction_mod.DOMAIN_ORDER
     active = 0
     max_active = 0
 
@@ -34,14 +35,17 @@ def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monk
         max_active = max(max_active, active)
         await asyncio.sleep(0.02)
         active -= 1
-        return _domain_result(domain)
+        result = _domain_result(domain)
+        if focus_paths is None:
+            return result
+        return CaseExtraction(facts={path: result.facts[path] for path in focus_paths})
 
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
     timings = {}
 
-    extraction = asyncio.run(template_extraction.extract_template_facts(
-        template_extraction.ParsedDocument(
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
+        extraction_mod.ParsedDocument(
             name="performance.docx", format="DOCX", pageCount=1,
             pages=[], text="脱敏性能测试", sizeLabel="test",
         ),
@@ -49,16 +53,16 @@ def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monk
         domains=domains,
     ))
 
-    assert template_extraction.DEFAULT_DOMAIN_CONCURRENCY == 7
-    assert max_active == 7
+    assert extraction_mod.DEFAULT_DOMAIN_CONCURRENCY == config.QWEN_DOMAIN_CONCURRENCY
+    assert max_active == config.QWEN_DOMAIN_CONCURRENCY
     assert set(extraction.facts) == {
-        path for domain in domains for path in template_extraction.DOMAIN_FACT_PATHS[domain]
+        path for domain in domains for path in extraction_mod.DOMAIN_FACT_PATHS[domain]
     }
     assert set(timings) == set(domains)
 
 
 def test_domain_concurrency_can_be_reduced_for_a_sequential_baseline(monkeypatch):
-    domains = template_extraction.DOMAIN_ORDER[:3]
+    domains = extraction_mod.DOMAIN_ORDER[:3]
     active = 0
     max_active = 0
 
@@ -68,13 +72,16 @@ def test_domain_concurrency_can_be_reduced_for_a_sequential_baseline(monkeypatch
         max_active = max(max_active, active)
         await asyncio.sleep(0.01)
         active -= 1
-        return _domain_result(domain)
+        result = _domain_result(domain)
+        if focus_paths is None:
+            return result
+        return CaseExtraction(facts={path: result.facts[path] for path in focus_paths})
 
-    monkeypatch.setattr(template_extraction, "_request_domain", request)
-    monkeypatch.setattr(template_extraction.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
 
-    asyncio.run(template_extraction.extract_template_facts(
-        template_extraction.ParsedDocument(
+    asyncio.run(extraction_mod.extract_template_facts(
+        extraction_mod.ParsedDocument(
             name="performance.docx", format="DOCX", pageCount=1,
             pages=[], text="脱敏性能测试", sizeLabel="test",
         ),
@@ -93,18 +100,18 @@ def test_review_workflow_forwards_benchmark_concurrency(monkeypatch):
         _document,
         _timings,
         *,
-        domains=template_extraction.DOMAIN_ORDER,
+        domains=extraction_mod.DOMAIN_ORDER,
         focus_paths=None,
         max_concurrency=2,
     ):
         observed.append(max_concurrency)
         return CaseExtraction()
 
-    monkeypatch.setattr(template_extraction, "extract_template_facts", extract)
-    monkeypatch.setattr(template_extraction, "evaluate_template_rules", lambda *_args: [])
+    monkeypatch.setattr(extraction_mod, "extract_template_facts", extract)
+    monkeypatch.setattr(extraction_mod, "evaluate_template_rules", lambda *_args: [])
 
-    outcome = asyncio.run(template_extraction.run_template_review(
-        template_extraction.ParsedDocument(
+    outcome = asyncio.run(extraction_mod.run_template_review(
+        extraction_mod.ParsedDocument(
             name="performance.docx", format="DOCX", pageCount=1,
             pages=[], text="脱敏性能测试", sizeLabel="test",
         ),
@@ -128,9 +135,9 @@ def test_semantic_fingerprint_ignores_wording_but_detects_evidence_changes():
     )
     reworded = issue.model_copy(update={"reason": "另一种说明措辞"})
 
-    first = template_extraction.semantic_fingerprint(extraction, [issue])
-    second = template_extraction.semantic_fingerprint(extraction, [reworded])
-    changed = template_extraction.semantic_fingerprint(
+    first = extraction_mod.semantic_fingerprint(extraction, [issue])
+    second = extraction_mod.semantic_fingerprint(extraction, [reworded])
+    changed = extraction_mod.semantic_fingerprint(
         extraction,
         [reworded.model_copy(update={"anchorIds": ["anchor-2"]})],
     )

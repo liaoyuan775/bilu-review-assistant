@@ -7,16 +7,23 @@ from docx import Document
 from fastapi.testclient import TestClient
 import fitz
 
-from app import store
+from app.storage import store
 from app.main import app
-from app.models import ReviewMode, ReviewTask
-from app.services import artifacts
-from app.services.reports import build_structured_report
-from app.services.artifacts import ArtifactStorage
-from app.store import SqliteTaskStore
+from app.core.models import ReviewMode, ReviewTask, RuleStatus
+from app.reporting.docx_report import _STATUS_LABELS as DOCX_STATUS_LABELS
+from app.reporting.reports import _STATUS_LABELS as PDF_STATUS_LABELS
+from app.storage import artifacts
+from app.reporting.reports import build_structured_report
+from app.storage.artifacts import ArtifactStorage
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)
+
+
+def test_not_applicable_status_label_is_explicit_in_reports():
+    assert PDF_STATUS_LABELS["not_applicable"] == "规则不适用"
+    assert DOCX_STATUS_LABELS[RuleStatus.NOT_APPLICABLE] == "规则不适用"
 
 
 def test_structured_report_exports_only_current_run_facts_with_provenance():
@@ -51,7 +58,7 @@ def test_structured_report_exports_only_current_run_facts_with_provenance():
 def _ready_demo(tmp_path, monkeypatch) -> str:
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
     monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
-    created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
     task_id = created.json()["taskId"]
     action = client.post(
         f"/api/v1/reviews/{task_id}/issues/RISK-001/actions",

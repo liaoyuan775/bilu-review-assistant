@@ -101,8 +101,8 @@ export const workflowNodes: Node<WorkflowNodeData>[] = [
     data: {
       step: "06", title: "人工复核", summary: "由办案人员确认模型结果并处置。",
       input: "规则状态、原文证据、建议补问和补充关注。",
-      process: "定位原文，执行确认问题、加入补问清单或忽略。",
-      output: "带人工处理状态的当前任务结果。",
+      process: "定位原文，按类别执行补问并重审、确认不适用或说明不处理，并确保全部异常闭环。",
+      output: "带人工闭环状态、可进入归档门禁的当前任务结果。",
       exception: "系统不替代执法判断、案件定性或证据效力判断。",
       phase: "review", status: "terminal",
     },

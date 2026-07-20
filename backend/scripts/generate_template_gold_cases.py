@@ -22,10 +22,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.data import TEMPLATE_RULE_CATALOG  # noqa: E402
-from app.services.template_extraction import DOMAIN_ENTITY_FIELDS, DOMAIN_FACT_PATHS  # noqa: E402
-from app.services.template_rule_engine import evaluate_template_rules  # noqa: E402
-from app.template_models import CaseExtraction, ExtractedEntity, ExtractedFact  # noqa: E402
+from app.data.rules import TEMPLATE_RULE_CATALOG  # noqa: E402
+from app.review.extraction import DOMAIN_ENTITY_FIELDS, DOMAIN_FACT_PATHS  # noqa: E402
+from app.review.rules import evaluate_template_rules  # noqa: E402
+from app.core.template_models import CaseExtraction, ExtractedEntity, ExtractedFact  # noqa: E402
 
 
 PROHIBITED_SENSITIVE_PATTERNS = {
@@ -47,7 +47,7 @@ SCENARIOS = (
     ("gold-04-risk-warning", "支付风险提示与证据", ("risk_and_evidence",)),
     ("gold-05-online-money", "线上转账与返利", ("online_money",)),
     ("gold-06-offline-delivery", "线下现金与财物交付", ("offline_delivery",)),
-    ("gold-07-special", "特殊诈骗场景", ("special_scenarios",)),
+    ("gold-07-extra", "其他补充事实", ("case_timeline",)),
     ("gold-08-case-procedure", "身份程序与案情概述", ("header_procedure", "case_timeline")),
     ("gold-09-contact-risk", "联系渠道与风险提示", ("contact_channels", "risk_and_evidence")),
     ("gold-10-online-timeline", "线上资金与时间线", ("case_timeline", "online_money")),
@@ -178,12 +178,11 @@ def _value_for(path: str):
     )
     if path.endswith(boolean_markers) or path in {
         "procedure.key_information_reconfirmed", "procedure.record_matches_statement",
-        "procedure.rights_notice_read", "procedure.statement_confirmed_true",
+        "procedure.record_reviewed", "procedure.rights_notice_read", "procedure.statement_confirmed_true",
         "procedure.truth_notice_confirmed", "prevention.community_police_publicity",
         "risk.phone_card_real_name", "risk.suspect_chat_real_name",
         "risk.victim_chat_real_name", "money.credentials_disclosed",
         "money.remote_control_used", "offline.suspect_appointment",
-        "special.ecommerce_logistics_impersonation", "special.gambling_related",
     }:
         return True
     return f"VALUE_TEST_{path.upper().replace('.', '_')}"
@@ -205,11 +204,6 @@ def _question_answers(domains: tuple[str, ...]) -> list[tuple[str, str]]:
         for domain in domains
         for path in DOMAIN_FACT_PATHS[domain]
     ]
-    if "case_timeline" in domains and "contact_channels" not in domains:
-        pairs.append((
-            "案情中的首次接触渠道是否也是联系域的首次渠道？",
-            "是，contact.initial_channel 与 case.initial_channel 是同一脱敏测试渠道，回答明确。",
-        ))
     for entity_type, fields in {
         name: fields for domain in domains for name, fields in DOMAIN_ENTITY_FIELDS[domain].items()
     }.items():
@@ -246,31 +240,11 @@ def _case_extraction(domains: tuple[str, ...]) -> CaseExtraction:
         for domain in domains
         for path in DOMAIN_FACT_PATHS[domain]
     }
-    if "contact_channels" in domains and "case_timeline" not in domains:
-        semantic_aliases = {
-            "case.initial_channel": "contact.initial_channel",
-            "case.contact_method": "contact.initial_channel",
-            "case.initial_contact": "contact.initial_content",
-            "case.channel_changes": "contact.switch_count",
-        }
-        for target, source in semantic_aliases.items():
-            facts[target] = facts[source].model_copy(deep=True)
     if "online_money" in domains and "case_timeline" not in domains:
-        semantic_aliases = {
-            "case.total_loss": "money.net_loss",
-            "case.payment_summary": "online_money.total",
-            "case.rebate_summary": "money.rebate_total",
-            "privacy.disclosure_occurred": "money.credentials_disclosed",
-            "privacy.disclosed_information": "money.credentials_disclosed",
-        }
-        for target, source in semantic_aliases.items():
-            facts[target] = facts[source].model_copy(deep=True)
         facts["timeline.incident_at"] = ExtractedFact(
             value="2026-07-01T11:00:00", clarity="clear",
             evidenceAnchorIds=["gold-transfers-1-time"], sourceConfidence=1.0,
         )
-    if "case_timeline" in domains and "contact_channels" not in domains:
-        facts["contact.initial_channel"] = facts["case.initial_channel"].model_copy(deep=True)
     entities: dict[str, list[ExtractedEntity]] = {}
     for domain in domains:
         for entity_type, fields in DOMAIN_ENTITY_FIELDS[domain].items():
@@ -434,6 +408,12 @@ def _oracle() -> dict:
             expected = kind
             if kind == "inconsistent" and not rule.consistencyChecks:
                 expected = "incomplete"
+            if (
+                kind in {"missing", "incomplete"}
+                and rule.appliesWhen is not None
+                and rule.appliesWhen.path in rule.requiredFields
+            ):
+                expected = "needs_manual_review"
             mutations.append({
                 "ruleId": rule.ruleId,
                 "kind": kind,

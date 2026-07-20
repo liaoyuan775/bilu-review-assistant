@@ -1,27 +1,25 @@
 import asyncio
-import json
 import base64
 from io import BytesIO
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import fitz
 from docx import Document
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 import pytest
 
-from app.errors import AppError
+from app.core.errors import AppError
 from app.main import app
-from app.data import RULES, TEMPLATE_RULES
-from app.demo_cases import DEMO_CASES, load_demo_document
-from app.services import artifacts, qwen
-from app.services.artifacts import ArtifactStorage
-from app.services.template_extraction import TemplateReviewOutcome
-from app.template_models import CaseExtraction
-from app.services.analyzer import analyze_document
-from app import store
-from app.store import SqliteTaskStore
+from app.data.rules import TEMPLATE_RULES
+from app.data.demo_cases import DEMO_CASES, load_demo_document
+from app.storage import artifacts
+from app.storage.artifacts import ArtifactStorage
+from app.review.extraction import TemplateReviewOutcome
+from app.review.mock import build_mock_review
+from app.core.template_models import CaseExtraction
+from app.storage import store
+from app.storage.store import SqliteTaskStore
 
 
 client = TestClient(app)
@@ -128,10 +126,10 @@ def _upload(filename: str, content: bytes):
         return TemplateReviewOutcome(
             extraction=CaseExtraction(),
             issues=[],
-            results=analyze_document(document),
+            results=build_mock_review(document),
         )
 
-    with patch("app.services.review.run_template_review", side_effect=fixture_review):
+    with patch("app.review.review.run_template_review", side_effect=fixture_review):
         created = client.post(
             "/api/v1/reviews",
             data={"mode": "local"},
@@ -172,7 +170,7 @@ def test_health_and_rules():
 
 
 def test_demo_review_decisions_block_archive_until_artifacts_exist():
-    created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
     assert created.status_code == 202
     task_id = created.json()["taskId"]
     task = client.get(f"/api/v1/reviews/{task_id}").json()
@@ -210,8 +208,57 @@ def test_demo_review_decisions_block_archive_until_artifacts_exist():
     assert any(item["id"] == task_id and item["reviewStatus"] == "in_review" for item in history.json()["reviews"])
 
 
+def test_demo_task_records_demo_id():
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
+    task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
+
+    assert task["demoId"] == "case-01-baseline"
+
+
+def test_bulk_demo_pass_generates_artifacts_and_leaves_archive_ready():
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={}).json()
+    response = client.post(f"/api/v1/reviews/{created['taskId']}/demo-pass")
+
+    assert response.status_code == 200
+    task = response.json()
+    actionable = {"missing", "incomplete", "inconsistent", "needs_manual_review"}
+    handled = [item for item in task["results"] if item["status"] in actionable]
+    assert handled
+    assert all(item["manualDecision"]["status"] == "resolved" for item in handled)
+    assert all(item["manualDecision"]["reason"] == "脱敏演示：一键测试通过" for item in handled)
+    assert set(task["acknowledgedWarnings"]) == {
+        warning["code"] for warning in task["document"]["warnings"]
+    }
+    assert {artifact["type"] for artifact in task["artifacts"]} >= {
+        "review_pdf", "follow_up_docx", "structured_json", "archive_manifest",
+    }
+    archived = client.post(f"/api/v1/reviews/{created['taskId']}/archive")
+    assert archived.status_code == 200
+
+
+def test_bulk_demo_pass_rejects_normal_upload():
+    task = _upload("normal.docx", _docx_bytes(["问：案发经过？答：脱敏测试内容。"]))
+
+    response = client.post(f"/api/v1/reviews/{task['id']}/demo-pass")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "demo_action_not_allowed"
+
+
+def test_bulk_demo_pass_rejects_failed_domains():
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={}).json()
+    task = store.get_task(created["taskId"])
+    task.failedDomains = ["content"]
+    store.save_task(task)
+
+    response = client.post(f"/api/v1/reviews/{created['taskId']}/demo-pass")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "demo_has_failed_domains"
+
+
 def test_template_results_locate_source_paragraphs():
-    created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
+    created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
     for item in task["results"]:
@@ -230,7 +277,7 @@ def test_docx_upload_completes_with_all_four_state_results():
     ]))
     assert task["status"] == "completed"
     assert task["document"]["format"] == "DOCX"
-    assert len(task["results"]) == 7
+    assert len(task["results"]) == len(TEMPLATE_RULES)
     assert {item["status"] for item in task["results"]} <= {"covered", "missing", "incomplete", "not_applicable"}
 
 
@@ -242,7 +289,7 @@ def test_text_pdf_upload_completes():
     task = _upload("anonymized-record.pdf", _text_pdf_bytes(text))
     assert task["status"] == "completed"
     assert task["document"]["format"] == "PDF"
-    assert len(task["results"]) == 7
+    assert len(task["results"]) == len(TEMPLATE_RULES)
 
 
 def test_scanned_pdf_uses_multimodal_transcription(monkeypatch):
@@ -250,7 +297,7 @@ def test_scanned_pdf_uses_multimodal_transcription(monkeypatch):
         "paragraphs": ["问：转账金额是多少？答：5000元。"],
         "confidence": 0.96,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe, raising=False)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe, raising=False)
 
     task = _upload("scanned.pdf", _blank_pdf_bytes())
 
@@ -271,7 +318,7 @@ def test_mixed_pdf_keeps_native_text_and_transcribes_embedded_images(monkeypatch
         "paragraphs": ["图片凭证流水号：MIXED-001"],
         "confidence": 0.9,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe)
 
     task = _upload("mixed-record.pdf", _mixed_pdf_bytes())
 
@@ -294,7 +341,7 @@ def test_docx_embedded_images_use_multimodal_transcription(monkeypatch):
         "paragraphs": ["交易流水号：TEST-VISION-001"],
         "confidence": 0.91,
     })
-    monkeypatch.setattr("app.services.parser.transcribe_image", transcribe, raising=False)
+    monkeypatch.setattr("app.parsing.parser.transcribe_image", transcribe, raising=False)
 
     task = _upload("image-record.docx", _docx_with_image_bytes())
 
@@ -317,7 +364,7 @@ def test_long_docx_is_accepted_without_page_limit():
     task = _upload("long-record.docx", _docx_bytes(paragraphs))
     assert task["status"] == "completed"
     assert task["document"]["pageCount"] >= 11
-    assert len(task["results"]) == 7
+    assert len(task["results"]) == len(TEMPLATE_RULES)
 
 
 def test_empty_and_corrupt_files_fail_cleanly():
@@ -340,417 +387,10 @@ def test_empty_and_corrupt_files_fail_cleanly():
     ],
 )
 def test_qwen_failures_fail_the_whole_demo_task(monkeypatch, failure, expected_code):
-    monkeypatch.setattr("app.services.review.run_template_review", AsyncMock(side_effect=failure))
-    created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={})
+    monkeypatch.setattr("app.review.review.run_template_review", AsyncMock(side_effect=failure))
+    created = client.post("/api/v1/reviews/demos/case-02-line-breaks", json={})
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
     assert task["status"] == "failed"
     assert task["errorCode"] == expected_code
     assert task["results"] == []
-
-
-def test_supplementary_hints_cannot_be_reported_as_hard_missing_facts():
-    demo = _demo_document(0)
-    first_rule = RULES[0]
-    supplementary = first_rule["referenceHints"][0]["label"]
-    assert supplementary not in {fact["label"] for fact in first_rule["requiredFacts"]}
-
-    payload = {"results": []}
-    for index, rule in enumerate(RULES):
-        missing = supplementary if index == 0 else rule["requiredFacts"][0]["label"]
-        payload["results"].append({
-            "ruleId": rule["id"],
-            "status": "incomplete",
-            "missingFacts": [missing],
-            "evidence": demo.pages[0].paragraphs[0].text,
-            "evidenceLocation": {"page": 1, "paragraph": 1},
-            "reason": "已涉及相关事项，但信息尚不完整。",
-            "suggestedQuestion": rule["suggestedQuestion"],
-            "advisories": [],
-        })
-
-    with pytest.raises(AppError) as error:
-        qwen._validate(payload, demo)
-    assert error.value.code == "invalid_model_results"
-
-
-def test_supplementary_advisories_are_kept_separate_from_status():
-    demo = _demo_document(0)
-    payload = {"results": []}
-    for rule in RULES:
-        payload["results"].append({
-            "ruleId": rule["id"],
-            "status": "covered",
-            "missingFacts": [],
-            "evidence": demo.pages[0].paragraphs[0].text,
-            "evidenceLocation": {"page": 1, "paragraph": 1},
-            "reason": "强制字段已有可定位的问答记录。",
-            "suggestedQuestion": "",
-            "advisories": ["可进一步核对关联平台账号。"],
-        })
-
-    results = qwen._validate(payload, demo)
-    assert all(result.status.value == "covered" for result in results)
-    assert results[0].advisories == ["可进一步核对关联平台账号。"]
-
-
-def _request_rule_ids(request_body: dict) -> list[str]:
-    if "response_format" in request_body:
-        return request_body["response_format"]["json_schema"]["schema"]["required"]
-    return request_body["tools"][0]["function"]["parameters"]["required"]
-
-
-def _structured_review_output(
-    demo,
-    *,
-    invalid_location: bool = False,
-    rule_ids: list[str] | None = None,
-) -> dict:
-    output = {}
-    for rule in RULES:
-        if rule_ids is not None and rule["id"] not in rule_ids:
-            continue
-        fact_coverage = {fact["label"]: "covered" for fact in rule["requiredFacts"]}
-        fact_coverage[rule["requiredFacts"][0]["label"]] = "missing"
-        output[rule["id"]] = {
-            "factCoverage": fact_coverage,
-            "evidenceLocations": [{"page": 99 if invalid_location else 1, "paragraph": 1}],
-            "reason": "演示模型返回了可定位的不完整结果。",
-            "suggestedQuestion": rule["suggestedQuestion"],
-            "advisories": [],
-        }
-    return output
-
-
-def test_qwen_reviews_three_present_and_four_flows_concurrently(monkeypatch):
-    demo = _demo_document()
-    full_output = _structured_review_output(demo)
-    active = 0
-    max_active = 0
-    group_calls: list[list[str]] = []
-
-    async def fake_review_group(_client, _document, rules, _correction=None):
-        nonlocal active, max_active
-        group_calls.append([rule["group"] for rule in rules])
-        active += 1
-        max_active = max(max_active, active)
-        await asyncio.sleep(0.01)
-        active -= 1
-        return {rule["id"]: qwen.ModelRuleResult.model_validate(full_output[rule["id"]]) for rule in rules}
-
-    class DummyClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen, "_review_rule_group", fake_review_group, raising=False)
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", lambda **_kwargs: DummyClient())
-    group_timings: dict[str, int] = {}
-
-    results = asyncio.run(qwen.review_with_qwen(demo, group_timings=group_timings))
-
-    assert max_active == 2
-    assert sorted(group_calls) == [["三现"] * 3, ["四流"] * 4]
-    assert set(group_timings) == {"三现", "四流"}
-    assert all(duration >= 0 for duration in group_timings.values())
-    assert len(results) == len(RULES)
-
-
-def test_qwen_accepts_multiple_evidence_locations_per_rule():
-    demo = _demo_document()
-    first = demo.pages[0].paragraphs[0].text
-    second = demo.pages[0].paragraphs[1].text
-    payload = {"results": []}
-    for rule in RULES:
-        payload["results"].append({
-            "ruleId": rule["id"],
-            "status": "incomplete",
-            "missingFacts": [rule["requiredFacts"][0]["label"]],
-            "evidence": f"{first}\n{second}",
-            "evidenceLocations": [
-                {"page": 1, "paragraph": 1},
-                {"page": 1, "paragraph": 2},
-            ],
-            "reason": "相关事实分布在相邻问答段落中。",
-            "suggestedQuestion": rule["suggestedQuestion"],
-            "advisories": [],
-        })
-
-    results = qwen._validate(payload, demo)
-
-    assert all(len(result.evidenceLocations) == 2 for result in results)
-    assert all(result.evidenceLocation == result.evidenceLocations[0] for result in results)
-
-
-def test_strict_review_schema_uses_only_supported_provider_keywords():
-    serialized = json.dumps(qwen.structured_review_schema(), ensure_ascii=False)
-    assert "uniqueItems" not in serialized
-    for rule in RULES:
-        locations = qwen.structured_review_schema()["properties"][rule["id"]]["properties"]["evidenceLocations"]
-        assert locations["maxItems"] == 3
-
-
-def test_qwen_retries_only_the_failed_group(monkeypatch):
-    demo = _demo_document()
-    full_output = _structured_review_output(demo)
-    attempts = {"三现": 0, "四流": 0}
-
-    async def fake_review_group(_client, _document, rules, _correction=None):
-        group = rules[0]["group"]
-        attempts[group] += 1
-        if group == "三现" and attempts[group] == 1:
-            raise AppError("invalid_model_response", "首次结构错误。", 502)
-        return {rule["id"]: qwen.ModelRuleResult.model_validate(full_output[rule["id"]]) for rule in rules}
-
-    class DummyClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen, "_review_rule_group_once", fake_review_group, raising=False)
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", lambda **_kwargs: DummyClient())
-
-    results = asyncio.run(qwen.review_with_qwen(demo))
-
-    assert len(results) == len(RULES)
-    assert attempts == {"三现": 2, "四流": 1}
-
-
-def test_qwen_openai_compatible_success_path(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    requested_groups: list[list[str]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/chat/completions"
-        assert request.headers["authorization"] == "Bearer test-key"
-        request_body = json.loads(request.content)
-        assert request_body["model"] == "test-model"
-        assert len(request_body["messages"]) == 2
-        assert "逐字复制当前规则 requiredFacts" in request_body["messages"][1]["content"]
-        response_format = request_body["response_format"]
-        assert response_format["type"] == "json_schema"
-        assert response_format["json_schema"]["strict"] is True
-        schema = response_format["json_schema"]["schema"]
-        rule_ids = schema["required"]
-        requested_groups.append(rule_ids)
-        assert rule_ids in [
-            [rule["id"] for rule in RULES if rule["group"] == "三现"],
-            [rule["id"] for rule in RULES if rule["group"] == "四流"],
-        ]
-        assert schema["additionalProperties"] is False
-        content = json.dumps(_structured_review_output(demo, rule_ids=rule_ids), ensure_ascii=False)
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
-
-    def client_factory(*_args, **kwargs):
-        assert kwargs["timeout"].read >= 120
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    group_timings: dict[str, int] = {}
-    results = asyncio.run(qwen.review_with_qwen(demo, group_timings=group_timings))
-    assert len(results) == len(RULES)
-    assert len(requested_groups) == 2
-    assert set(group_timings) == {"三现", "四流"}
-    assert all("Qwen 辅助判断" in item.source for item in results)
-    assert all(item.evidence == demo.pages[0].paragraphs[0].text for item in results)
-
-
-def test_qwen_retries_once_with_validation_feedback(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    requests: list[dict] = []
-    attempts: dict[tuple[str, ...], int] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        request_body = json.loads(request.content)
-        requests.append(request_body)
-        rule_ids = _request_rule_ids(request_body)
-        group_key = tuple(rule_ids)
-        attempts[group_key] = attempts.get(group_key, 0) + 1
-        output = _structured_review_output(
-            demo,
-            invalid_location=attempts[group_key] == 1,
-            rule_ids=rule_ids,
-        )
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output, ensure_ascii=False)}}]})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    results = asyncio.run(qwen.review_with_qwen(demo))
-    assert len(results) == len(RULES)
-    assert len(requests) == 4
-    correction_requests = [request for request in requests if len(request["messages"]) == 3]
-    assert len(correction_requests) == 2
-    assert all("evidenceLocations" in request["messages"][-1]["content"] for request in correction_requests)
-    assert any("PRESENT-001" in request["messages"][-1]["content"] for request in correction_requests)
-
-
-def test_qwen_correction_lists_allowed_fact_coverage_keys(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    requests: list[dict] = []
-    present_attempts = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal present_attempts
-        request_body = json.loads(request.content)
-        requests.append(request_body)
-        rule_ids = _request_rule_ids(request_body)
-        output = _structured_review_output(demo, rule_ids=rule_ids)
-        if "PRESENT-001" in rule_ids:
-            present_attempts += 1
-        if "PRESENT-001" in rule_ids and present_attempts == 1:
-            output["PRESENT-001"]["factCoverage"][RULES[0]["referenceHints"][0]["label"]] = "missing"
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output, ensure_ascii=False)}}]})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    results = asyncio.run(qwen.review_with_qwen(demo))
-    assert len(results) == len(RULES)
-    feedback = next(request["messages"][-1]["content"] for request in requests if len(request["messages"]) == 3)
-    assert "factCoverage 只允许以下键" in feedback
-    assert all(fact["label"] in feedback for fact in RULES[0]["requiredFacts"])
-
-
-def test_qwen_fails_without_partial_results_after_two_invalid_responses(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    request_count = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal request_count
-        request_count += 1
-        request_body = json.loads(request.content)
-        output = _structured_review_output(demo, invalid_location=True, rule_ids=_request_rule_ids(request_body))
-        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(output, ensure_ascii=False)}}]})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    with pytest.raises(AppError) as error:
-        asyncio.run(qwen.review_with_qwen(demo))
-    assert request_count == 4
-    assert error.value.code == "insufficient_evidence"
-
-
-def test_qwen_falls_back_to_function_calling_when_json_schema_is_unsupported(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    requests: list[dict] = []
-    attempts: dict[tuple[str, ...], int] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        request_body = json.loads(request.content)
-        requests.append(request_body)
-        rule_ids = _request_rule_ids(request_body)
-        group_key = tuple(rule_ids)
-        attempts[group_key] = attempts.get(group_key, 0) + 1
-        if attempts[group_key] == 1:
-            return httpx.Response(400, json={"error": {"message": "response_format json_schema is not supported"}})
-        assert request_body["tool_choice"]["function"]["name"] == qwen.TOOL_NAME
-        assert request_body["tools"][0]["function"]["parameters"]["required"] == rule_ids
-        arguments = json.dumps(_structured_review_output(demo, rule_ids=rule_ids), ensure_ascii=False)
-        return httpx.Response(200, json={"choices": [{"message": {"tool_calls": [{
-            "id": "call-1",
-            "type": "function",
-            "function": {"name": qwen.TOOL_NAME, "arguments": arguments},
-        }]}}]})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    results = asyncio.run(qwen.review_with_qwen(demo))
-    assert len(results) == len(RULES)
-    assert len(requests) == 4
-
-
-def test_qwen_retries_transient_http_failure_with_json_schema(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    demo = _demo_document()
-    requests: list[dict] = []
-    attempts: dict[tuple[str, ...], int] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        request_body = json.loads(request.content)
-        requests.append(request_body)
-        rule_ids = _request_rule_ids(request_body)
-        group_key = tuple(rule_ids)
-        attempts[group_key] = attempts.get(group_key, 0) + 1
-        if attempts[group_key] == 1:
-            return httpx.Response(503, json={"error": {"message": "temporarily unavailable"}})
-        assert request_body["response_format"]["type"] == "json_schema"
-        content = json.dumps(_structured_review_output(demo, rule_ids=rule_ids), ensure_ascii=False)
-        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-    monkeypatch.setattr(qwen.asyncio, "sleep", AsyncMock())
-
-    results = asyncio.run(qwen.review_with_qwen(demo))
-    assert len(results) == len(RULES)
-    assert len(requests) == 4
-
-
-def test_qwen_does_not_retry_authentication_failure(monkeypatch):
-    real_async_client = httpx.AsyncClient
-    request_count = 0
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        nonlocal request_count
-        request_count += 1
-        return httpx.Response(401, json={"error": {"message": "invalid token"}})
-
-    def client_factory(*_args, **kwargs):
-        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
-    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
-    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
-    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
-
-    with pytest.raises(AppError) as error:
-        asyncio.run(qwen.review_with_qwen(_demo_document()))
-    assert request_count == 2
-    assert error.value.code == "model_auth_failed"

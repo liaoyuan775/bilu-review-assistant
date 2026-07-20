@@ -3,9 +3,9 @@ from pathlib import Path
 import re
 from types import SimpleNamespace
 
-from app.data import TEMPLATE_RULE_CATALOG
-from app.models import RuleStatus
-from app.template_models import CaseExtraction, ExtractedEntity
+from app.data.rules import TEMPLATE_RULE_CATALOG
+from app.core.models import RuleStatus
+from app.core.template_models import CaseExtraction, ExtractedEntity
 from scripts import verify_template_quality
 from scripts.generate_template_gold_cases import (
     PROHIBITED_SENSITIVE_PATTERNS,
@@ -256,13 +256,12 @@ def test_gold_value_matching_accepts_context_wrapped_tokens_and_numeric_units():
     assert verify_template_quality._values_equal("共 2 次", 2)
 
 
-def test_gold_accuracy_accepts_reworded_cross_domain_semantic_aliases():
+def test_gold_accuracy_accepts_reworded_semantic_values():
     from scripts.generate_template_gold_cases import _case_extraction
 
     expected = _case_extraction(("contact_channels",))
     actual = expected.model_copy(deep=True)
-    actual.facts["case.channel_changes"].value = "已逐项记录两次渠道切换"
-    actual.facts["case.contact_method"].value = "通过脱敏测试渠道建立联系"
+    actual.facts["contact.initial_channel"].value = "该字段明确记录为 VALUE_TEST_CONTACT_INITIAL_CHANNEL。"
 
     passed, total, mismatches = verify_template_quality._gold_accuracy(actual, expected)
 

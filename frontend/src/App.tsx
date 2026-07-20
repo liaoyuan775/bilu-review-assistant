@@ -53,17 +53,17 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
+import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, passDemoReview, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
 import { evidenceLocationsFor, isEvidencePage, isEvidenceParagraph } from "./evidenceSelection";
 import { getReviewErrorTitle } from "./errorPresentation";
 import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
 import { canCompleteReview, nextPendingRuleId, pendingDecisionCount } from "./reviewState";
 import { formatModelReviewDuration } from "./reviewTiming";
 import { groupRules } from "./ruleGroups";
-import { displayFactLabel, displayGroupLabel, displayRuleScope } from "./ruleLabels";
+import { displayFactLabel, displayGroupLabel, displayReviewReason, displayRuleScope } from "./ruleLabels";
 import { toggleSelectedRuleId } from "./resultSelection";
-import type { DemoSummary, ManualStatus, ReportData, ReviewResult, ReviewSummary, ReviewTask, RuleStatus, RuleSummary, TaskStatus, VictimProfile } from "./types";
-import { getVictimAvatarVariant, getVictimInitial } from "./victimProfile";
+import type { DemoSummary, ManualStatus, ReportData, ReviewResult, ReviewSummary, ReviewTask, RuleStatus, RuleSummary, TaskStatus } from "./types";
+import { profileFields, VictimProfileCard } from "./VictimProfileCard";
 import { WorkflowView } from "./WorkflowView";
 import { TemplateReviewView } from "./TemplateReviewView";
 import { actionableStatuses, countTemplateStatuses } from "./templateReviewState";
@@ -78,7 +78,7 @@ const statusMeta: Record<RuleStatus, { label: string; className: string; icon: t
   missing: { label: "提问遗漏", className: "missing", icon: AlertCircle },
   incomplete: { label: "回答不完整", className: "incomplete", icon: Clock3 },
   inconsistent: { label: "事实矛盾", className: "inconsistent", icon: AlertTriangle },
-  not_applicable: { label: "不适用", className: "not-applicable", icon: CircleSlash2 },
+  not_applicable: { label: "规则不适用", className: "not-applicable", icon: CircleSlash2 },
   needs_manual_review: { label: "待人工判断", className: "manual-review", icon: ShieldCheck },
 };
 
@@ -298,6 +298,20 @@ function App() {
     }
   };
 
+  const passAllDemoIssues = async () => {
+    try {
+      const updated = await passDemoReview(task.id);
+      setTask(updated);
+      setSelectedRuleId(updated.results.find((item) =>
+        actionableStatuses.has(item.status) && !["resolved", "not_applicable", "ignored"].includes(item.manualDecision.status),
+      )?.ruleId ?? null);
+      showToast("演示问题已全部测试通过，归档产物已生成");
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "一键测试通过失败");
+      throw error;
+    }
+  };
+
   /** 完成复核并归档（所有待处置项必须已分流）。 */
   const finishReview = async () => {
     try {
@@ -468,6 +482,7 @@ function App() {
             onAction={updateManualDecision}
             onFollowUp={saveFollowUpAnswer}
             onGenerateArtifacts={generateArtifacts}
+            onDemoPassAll={passAllDemoIssues}
             onArchive={finishReview}
             onShowReport={openReport}
             onAcknowledgeWarnings={confirmWarnings}
@@ -567,7 +582,7 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
 
       <div className="sample-section entrance-3">
         <div className="section-heading-row">
-          <div><h2>脱敏演示样例</h2><p>01 可快速查看完整效果，02–07 使用 Qwen 完整审查。</p></div>
+          <div><h2>脱敏测试样例</h2><p>01 为快速模拟结果，02–06 通过完整审查接口。</p></div>
           <span>共 {demos.length} 份</span>
         </div>
         <div className="sample-list">
@@ -576,9 +591,9 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
             return (
             <button key={demo.id} className="sample-row" onClick={() => onDemo(demo)} disabled={processing || unavailable}>
               <span className="sample-index">0{index + 1}</span>
-              <span className="sample-file"><FileText size={18} /><span><strong>{demo.name}</strong><small>{demo.pageCount} 页 · 脱敏样例</small></span></span>
+              <span className="sample-file"><FileText size={18} /><span><strong>{demo.name}</strong><small>{demo.pageCount} 页 · 中文脱敏测试文件</small></span></span>
               <span className="sample-intent">{demo.intent}</span>
-              <span className={`sample-mode ${demo.executionMode}`}>{demo.executionMode === "mock" ? "模拟结果" : "Qwen 完整审查"}</span>
+              <span className={`sample-mode ${demo.executionMode}`}>{demo.executionMode === "mock" ? "模拟结果" : "完整接口审查"}</span>
               <ChevronRight size={18} />
             </button>
           );})}
@@ -611,104 +626,6 @@ interface ResultViewProps {
   documentCollapsed: boolean;
   setDocumentCollapsed: (value: boolean) => void;
   notify: (message: string) => void;
-}
-
-const profileFields: Array<{ key: keyof VictimProfile; label: string; format?: (value: VictimProfile[keyof VictimProfile]) => string }> = [
-  { key: "name", label: "姓名" },
-  { key: "gender", label: "性别" },
-  { key: "age", label: "年龄", format: (value) => `${value}岁` },
-  { key: "ethnicity", label: "民族" },
-  { key: "idNumber", label: "身份证号" },
-  { key: "contact", label: "联系方式" },
-  { key: "employer", label: "工作单位" },
-  { key: "address", label: "住址" },
-];
-
-/**
- * 被害人信息卡 — 悬浮/点击展示被害人详细信息。
- *
- * 交互方式：
- * - 悬浮（hover）: 显示弹窗，移出后自动关闭。
- * - 点击固定（click to pin）: 点击后弹窗保持打开，点击外部关闭。
- * - Escape 键: 关闭弹窗。
- *
- * 使用防内存泄漏的 useEffect 清理 pointerdown 事件监听。
- */
-function VictimProfileCard({ profile }: { profile: VictimProfile }) {
-  const [pinned, setPinned] = useState(false);
-  const [hoverOpen, setHoverOpen] = useState(false);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const name = profile.name ?? "姓名未提取";
-  const summary = [profile.gender, profile.age === null ? null : `${profile.age}岁`, profile.ethnicity].filter(Boolean).join(" · ");
-
-  useEffect(() => {
-    if (!pinned) return;
-    const closeWhenClickingOutside = (event: PointerEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setPinned(false);
-    };
-    document.addEventListener("pointerdown", closeWhenClickingOutside);
-    return () => document.removeEventListener("pointerdown", closeWhenClickingOutside);
-  }, [pinned]);
-
-  return (
-    <div
-      ref={containerRef}
-      className={`victim-profile ${pinned ? "is-pinned" : ""} ${hoverOpen ? "is-hover-open" : ""} ${keyboardOpen ? "is-keyboard-open" : ""}`}
-      onPointerEnter={() => setHoverOpen(true)}
-      onPointerLeave={() => setHoverOpen(false)}
-      onFocusCapture={() => setKeyboardOpen(true)}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboardOpen(false);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          setPinned(false);
-          setHoverOpen(false);
-          setKeyboardOpen(false);
-        }
-      }}
-    >
-      <button
-        className="victim-profile-trigger"
-        type="button"
-        aria-expanded={pinned}
-        aria-haspopup="dialog"
-        aria-controls="victim-profile-detail"
-        onClick={() => {
-          setKeyboardOpen(false);
-          setPinned((current) => !current);
-        }}
-      >
-        <span className={`victim-avatar ${getVictimAvatarVariant(name)}`} aria-hidden="true">{getVictimInitial(name)}</span>
-        <span className="victim-profile-summary">
-          <small>被害人</small>
-          <strong>{name}</strong>
-          <span>{summary || "基础信息待补充"}</span>
-        </span>
-        <ChevronDown size={16} aria-hidden="true" />
-      </button>
-
-      <div className="victim-profile-popover" id="victim-profile-detail" role="dialog" aria-label="被害人详细信息">
-        <div className="victim-profile-popover-heading">
-          <span className={`victim-avatar ${getVictimAvatarVariant(name)}`} aria-hidden="true">{getVictimInitial(name)}</span>
-          <span><small>被害人信息</small><strong>{name}</strong></span>
-        </div>
-        <dl>
-          {profileFields.map(({ key, label, format }) => {
-            const value = profile[key];
-            return (
-              <div className={key === "employer" || key === "address" ? "profile-field wide" : "profile-field"} key={key}>
-                <dt>{label}</dt>
-                <dd>{value === null ? "未提取" : format ? format(value) : value}</dd>
-              </div>
-            );
-          })}
-        </dl>
-        <p><LockKeyhole size={13} />个人信息按笔录原文展示</p>
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -921,7 +838,7 @@ function ResultView(props: ResultViewProps) {
                   {isSelected && (
                     <div className="result-detail" id={`result-detail-${result.ruleId}`}>
                       <div className="detail-block"><span>判断说明</span><p>{result.reason}</p></div>
-                      {result.missingFacts.length > 0 && <div className="fact-list"><span>缺失要素</span><div>{result.missingFacts.map((fact) => <em key={fact}>{fact}</em>)}</div></div>}
+                      {result.missingFacts.length > 0 && <div className="fact-list"><span>缺失要素</span><div>{result.missingFacts.map((fact) => <em key={fact}>{displayFactLabel(fact)}</em>)}</div></div>}
                       <div className="evidence-box">
                         <div>
                           <span>原文证据</span>
@@ -1031,7 +948,7 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
         <header><span>笔录辅助审查</span><h1>审查复核报告</h1><p>智能审查结果仅供复盘参考，以人工审核为准。</p></header>
         <dl className="report-meta">
           <div><dt>文件名称</dt><dd>{report.document?.name ?? "未命名笔录"}</dd></div>
-          <div><dt>审查模式</dt><dd>{report.mode === "mock" ? "快速模拟演示" : report.mode === "local" ? "旧版本地演示" : "Qwen 模型"}</dd></div>
+          <div><dt>审查模式</dt><dd>{report.mode === "mock" ? "快速模拟演示" : report.mode === "local" ? "旧版本地演示" : "完整模型审查"}</dd></div>
           <div><dt>审查时间</dt><dd>{new Date(report.createdAt).toLocaleString("zh-CN")}</dd></div>
           <div><dt>归档时间</dt><dd>{report.archivedAt ? new Date(report.archivedAt).toLocaleString("zh-CN") : "尚未归档"}</dd></div>
           <div><dt>复核状态</dt><dd>{report.reviewStatus === "archived" ? "已完成并归档" : "复核中"}</dd></div>
@@ -1047,11 +964,11 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
             </dl>
           </section>
         )}
-        <section className="report-summary"><h2>审查概览</h2><div><span>验证通过 <strong>{counts.covered}</strong></span><span>提问遗漏 <strong>{counts.missing}</strong></span><span>回答不完整 <strong>{counts.incomplete}</strong></span><span>不适用 <strong>{counts.not_applicable}</strong></span></div></section>
+        <section className="report-summary"><h2>审查概览</h2><div><span>验证通过 <strong>{counts.covered}</strong></span><span>提问遗漏 <strong>{counts.missing}</strong></span><span>回答不完整 <strong>{counts.incomplete}</strong></span><span>规则不适用 <strong>{counts.not_applicable}</strong></span></div></section>
         <section className="report-results"><h2>逐项审查与人工分流</h2>{report.results.map((item) => (
           <article key={item.ruleId}>
             <div><code>{item.ruleId}</code><strong>{item.ruleName}</strong><span>{statusMeta[item.status].label}</span><em>{manualLabel[item.manualDecision.status]}</em></div>
-            <p><b>判断说明：</b>{item.reason}</p>
+            <p><b>判断说明：</b>{displayReviewReason(item.reason)}</p>
             <p><b>原文证据：</b>{item.evidence || "未提供证据"}{evidenceLocationsFor(item).length > 0 ? `（${evidenceLocationsFor(item).map((location) => `第 ${location.page} 页第 ${location.paragraph} 段`).join("；")}）` : ""}</p>
             {(item.suggestedQuestion || item.manualDecision.reason) && <p><b>建议补问：</b>{effectiveFollowUpQuestion(item)}</p>}
           </article>

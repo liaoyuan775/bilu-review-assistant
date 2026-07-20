@@ -1,0 +1,3 @@
+明确“无、否、未收到”是清晰的否定事实，不得标为 missing。
+录音问题空答时 evidence.voice_recording_exists 返回 missing，不从通话事实推断是否录音。
+聊天工具是否使用或是否实名无法确认时保持 unknown，由规则标记待人工判断。

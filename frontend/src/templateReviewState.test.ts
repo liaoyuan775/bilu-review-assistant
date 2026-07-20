@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   archiveBlockers,
   countTemplateStatuses,
+  processingLabel,
   groupTemplateResults,
   nextActionableIssueId,
+  sectionTemplateResults,
+  summaryStatuses,
 } from "./templateReviewState";
 import type { ManualStatus, ReviewResult, ReviewStatus, RuleStatus, ReviewTask, TaskStatus } from "./types";
 
@@ -76,6 +79,26 @@ describe("template review state", () => {
     expect(groups[0].results.map((item) => item.ruleId)).toEqual(["CASE-MISS", "CASE-OK"]);
   });
 
+  it("sections open issues before closed, not applicable, and covered results", () => {
+    const closed = result("CLOSED", "CASE", "missing", "resolved", "high");
+    closed.manualDecision.reason = "已核实";
+    const sections = sectionTemplateResults([
+      result("OK", "CASE", "covered"),
+      result("LOW-INCOMPLETE", "MONEY", "incomplete", "pending", "low"),
+      result("NA", "PROC", "not_applicable"),
+      closed,
+      result("MEDIUM-INCONSISTENT", "CASE", "inconsistent", "pending", "medium"),
+      result("HIGH-MISSING", "RISK", "missing", "pending", "high"),
+    ]);
+
+    expect(sections.map((section) => section.key)).toEqual([
+      "open", "closed", "not_applicable", "covered",
+    ]);
+    expect(sections[0].groups.flatMap((group) => group.results.map((item) => item.ruleId))).toEqual([
+      "HIGH-MISSING", "MEDIUM-INCONSISTENT", "LOW-INCOMPLETE",
+    ]);
+  });
+
   it("counts all six deterministic statuses", () => {
     const statuses: RuleStatus[] = [
       "covered", "missing", "incomplete", "inconsistent", "not_applicable", "needs_manual_review",
@@ -89,6 +112,17 @@ describe("template review state", () => {
       not_applicable: 1,
       needs_manual_review: 1,
     });
+  });
+
+  it("keeps not applicable visible in the review summary", () => {
+    expect(summaryStatuses).toEqual([
+      "missing", "incomplete", "inconsistent", "needs_manual_review", "not_applicable", "covered",
+    ]);
+  });
+
+  it("does not add a processing label to already covered rules", () => {
+    expect(processingLabel(result("OK", "CASE", "covered"))).toBeNull();
+    expect(processingLabel(result("MISSING", "CASE", "missing"))).toBe("待处理");
   });
 
   it("selects the next pending actionable issue and wraps", () => {
@@ -126,7 +160,34 @@ describe("template review state", () => {
       "failed_domains",
       "unresolved_warnings",
       "missing_artifacts",
-      "pending_high_risk",
+      "unresolved_issues",
     ]);
+  });
+
+  it.each([
+    ["low", "pending"],
+    ["medium", "supplemented"],
+    ["high", "confirmed"],
+  ] as const)("blocks archive for unresolved %s-risk issues in %s", (severity, manualStatus) => {
+    const blockers = archiveBlockers(task({
+      results: [result("CASE-001", "CASE", "incomplete", manualStatus, severity)],
+    }));
+
+    expect(blockers).toContainEqual({
+      code: "unresolved_issues",
+      label: "未闭环问题",
+      count: 1,
+    });
+  });
+
+  it.each([
+    ["resolved", "已人工核对。"],
+    ["not_applicable", "本案不涉及该场景。"],
+    ["ignored", "经确认不再处理。"],
+  ] as const)("allows archive for terminal decision %s with a reason", (manualStatus, reason) => {
+    const item = result("CASE-001", "CASE", "missing", manualStatus, "low");
+    item.manualDecision.reason = reason;
+
+    expect(archiveBlockers(task({ results: [item] }))).toEqual([]);
   });
 });
