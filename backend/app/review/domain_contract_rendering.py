@@ -71,12 +71,26 @@ def render_domain_prompt(
         if paragraph.id not in qa_anchor_ids
     )
 
-    requested_lines = ["事实："]
+    requested_lines = [
+        "必须逐项返回这些事实路径：" + json.dumps(selected_paths, ensure_ascii=False),
+        "事实：",
+    ]
     requested_lines.extend(_render_fact(path, contract.facts[path]) for path in selected_paths)
     requested_lines.append("实体：")
     if fact_paths is not None or not contract.entities:
+        requested_lines.append("必须逐项返回这些实体数组及字段：{}")
         requested_lines.append("- 无")
     else:
+        requested_lines.append(
+            "必须逐项返回这些实体数组及字段："
+            + json.dumps(
+                {
+                    entity_type: list(entity.fields)
+                    for entity_type, entity in contract.entities.items()
+                },
+                ensure_ascii=False,
+            )
+        )
         for entity_type, entity in contract.entities.items():
             metadata = [f"entityType={entity_type}"]
             if entity.applicabilityPath:

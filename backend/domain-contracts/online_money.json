@@ -2,7 +2,7 @@
   "domain": "online_money",
   "title": "线上资金",
   "include": ["线上转账或扫码支付", "逐笔转账", "线上返款", "被骗金额与净损失"],
-  "exclude": ["银行取现", "现金或实物线下交付", "把取现次数当作转账笔数"],
+  "exclude": ["银行取现", "现金或实物线下交付", "不得把现金取款或线下交付次数当成线上转账笔数"],
   "facts": {
     "money.credentials_disclosed": {"description": "是否提供银行卡、密码或验证码等凭证", "valueSchema": {"type": ["boolean", "null"]}},
     "money.gross_loss": {"description": "被骗总额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},

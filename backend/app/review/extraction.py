@@ -44,25 +44,28 @@ import httpx
 from pydantic import ValidationError
 
 from app.core.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_DOMAIN_CONCURRENCY, QWEN_MODEL
+from app.data.domain_contracts import (
+    DOMAIN_CONTRACTS,
+    DOMAIN_ENTITY_APPLICABILITY,
+    DOMAIN_ENTITY_FIELDS,
+    DOMAIN_FACT_PATHS,
+    DOMAIN_ORDER,
+    ENTITY_COUNT_PATHS,
+)
 from app.data.rules import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
 from app.core.development_logging import log_event, log_payload
 from app.core.errors import AppError
 from app.core.models import EvidenceLocation, ManualDecision, ParsedDocument, ReviewResult, RuleStatus
 from app.llm.qwen import request_structured_payload
+from app.review.domain_contract_rendering import (
+    build_domain_schema,
+    render_domain_prompt,
+    validate_schema_payload,
+)
 from app.review.rules import _boolean_value, evaluate_template_rules
 from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue, TemplateRule
 
 
-# 7 个业务域的固定顺序
-DOMAIN_ORDER = (
-    "header_procedure",#头信息与程序事项
-    "case_timeline",#案件时间线
-    "contact_channels",#联系渠道
-    "risk_and_evidence",#风险与证据
-    "online_money",#线上资金流
-    "offline_delivery",#线下交付
-    "special_scenarios",#特殊场景
-)
 # 可通过 QWEN_DOMAIN_CONCURRENCY 调整，范围 1-7。
 DEFAULT_DOMAIN_CONCURRENCY = QWEN_DOMAIN_CONCURRENCY
 MAX_FACTS_PER_SCHEMA_REQUEST = 8
@@ -96,88 +99,19 @@ class TemplateDomainFailure(AppError):
         self.domain_error_details = domain_error_details or {}
 
 
+_PATH_DOMAINS = {
+    path: domain
+    for domain, paths in DOMAIN_FACT_PATHS.items()
+    for path in paths
+}
+
+
 def _domain_for_path(path: str) -> str:
-    """根据事实路径确定其所属的业务域。"""
-    if path == "case.additional_statement" or path.startswith("special."):
-        return "special_scenarios"
-    prefix = path.split(".", 1)[0]
-    if prefix in {"record", "procedure", "victim"}:
-        return "header_procedure"
-    if prefix in {"case", "timeline", "privacy", "motive"}:
-        return "case_timeline"
-    if prefix == "contact":
-        return "contact_channels"
-    if prefix in {"prevention", "risk", "evidence"}:
-        return "risk_and_evidence"
-    if prefix in {"money", "online_money"}:
-        return "online_money"
-    if prefix in {"cash", "offline"}:
-        return "offline_delivery"
-    raise ValueError(f"Unknown template fact path: {path}")
-
-
-def _catalog_paths() -> set[str]:
-    """从模板规则目录中提取所有涉及的事实路径。"""
-    paths: set[str] = set()
-    for rule in TEMPLATE_RULES:
-        paths.update(rule.requiredFields)
-        if rule.appliesWhen:
-            paths.add(rule.appliesWhen.path)
-        if rule.repeatEntity and rule.repeatEntity.countPath:
-            paths.add(rule.repeatEntity.countPath)
-        for check in rule.consistencyChecks:
-            for value in (
-                check.totalPath,
-                check.countPath,
-                check.leftPath,
-                check.rightPath,
-                check.resultPath,
-                check.earlierPath,
-                check.laterPath,
-            ):
-                if value:
-                    paths.add(value)
-    paths.update({"special.gambling_related", "special.ecommerce_logistics_impersonation"})
-    return paths
-
-
-# 每个业务域包含的事实路径列表（自动从规则目录中推导）
-DOMAIN_FACT_PATHS = {
-    domain: tuple(sorted(path for path in _catalog_paths() if _domain_for_path(path) == domain))
-    for domain in DOMAIN_ORDER
-}
-
-# 每个业务域的实体字段定义
-DOMAIN_ENTITY_FIELDS = {
-    "header_procedure": {},
-    "case_timeline": {},
-    "contact_channels": {
-        "contact_switches": ("time", "channel", "account", "important_information", "details"),
-    },
-    "risk_and_evidence": {},
-    "online_money": {
-        "transfers": ("time", "amount", "payment_method", "payer_account", "recipient_account", "transaction_id"),
-        "rebates": ("time", "amount", "method", "recipient_account", "transaction_id"),
-    },
-    "offline_delivery": {
-        "withdrawals": ("bank", "branch", "address", "time", "amount"),
-        "offline_handoffs": ("time", "location", "property_type", "amount_or_value", "method", "recipient_or_logistics"),
-    },
-    "special_scenarios": {},
-}
-
-# 实体计数映射：{entity_type: count_path}
-ENTITY_COUNT_PATHS = {
-    rule.repeatEntity.entityType: rule.repeatEntity.countPath
-    for rule in TEMPLATE_RULES
-    if rule.repeatEntity is not None and rule.repeatEntity.countPath
-}
-
-# 实体适用性映射：有实体的域需要先确认是否"适用"
-DOMAIN_ENTITY_APPLICABILITY = {
-    "online_money": "online_money.used",
-    "offline_delivery": "offline.used",
-}
+    """根据域合同确定事实路径所属业务域。"""
+    try:
+        return _PATH_DOMAINS[path]
+    except KeyError as exc:
+        raise ValueError(f"Unknown template fact path: {path}") from exc
 
 
 @dataclass
@@ -194,107 +128,22 @@ class TemplateReviewOutcome:
     results: list[ReviewResult]
 
 
-def _fact_schema(allowed_anchor_ids: tuple[str, ...] | None = None) -> dict:
-    """生成单条事实的 JSON Schema。
-
-    每条事实包含：
-    - value:      事实的值（字符串/数字/布尔/null）
-    - clarity:    清晰度（clear/unclear/unknown/missing）
-    - evidenceAnchorIds: 证据锚点 ID 列表
-    """
-    return {
-        "type": "object",
-        "properties": {
-            "value": {"type": ["string", "number", "integer", "boolean", "null"]},
-            "clarity": {"type": "string", "enum": ["clear", "unclear", "unknown", "missing"]},
-            "evidenceAnchorIds": {
-                "type": "array",
-                "maxItems": 3,
-                "items": {
-                    **(
-                        {"$ref": "#/$defs/anchorId"}
-                        if allowed_anchor_ids is not None
-                        else {"type": "string"}
-                    ),
-                },
-            },
-        },
-        "required": ["value", "clarity", "evidenceAnchorIds"],
-        "additionalProperties": False,
-    }
-
-
 def template_extraction_schema(
     domain: str,
     *,
     fact_paths: tuple[str, ...] | None = None,
     allowed_anchor_ids: tuple[str, ...] | None = None,
 ) -> dict:
-    """生成指定业务域的完整 JSON Schema。
-
-    Schema 结构：
-    {
-        facts:    { path: FactSchema, ... },
-        entities: { entity_type: [EntitySchema, ...], ... },
-        failedDomains: []  # 必须为空数组
-    }
-    """
-    if domain not in DOMAIN_FACT_PATHS:
-        raise ValueError(f"Unknown extraction domain: {domain}")
-    selected_paths = list(fact_paths if fact_paths is not None else DOMAIN_FACT_PATHS[domain])
-    if not set(selected_paths).issubset(DOMAIN_FACT_PATHS[domain]):
-        raise ValueError(f"Fact path does not belong to extraction domain: {domain}")
-    entity_properties: dict[str, dict] = {}
-    selected_entities = {} if fact_paths is not None else DOMAIN_ENTITY_FIELDS[domain]
-    for entity_type, fields in selected_entities.items():
-        entity_properties[entity_type] = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string", "minLength": 1},
-                    "entityType": {"type": "string", "const": entity_type},
-                    "fields": {
-                        "type": "object",
-                        "properties": {field: {"$ref": "#/$defs/fact"} for field in fields},
-                        "required": list(fields),
-                        "additionalProperties": False,
-                    },
-                },
-                "required": ["id", "entityType", "fields"],
-                "additionalProperties": False,
-            },
-        }
-    schema = {
-        "type": "object",
-        "properties": {
-            "facts": {
-                "type": "object",
-                "properties": {path: {"$ref": "#/$defs/fact"} for path in selected_paths},
-                "required": selected_paths,
-                "additionalProperties": False,
-            },
-            "entities": {
-                "type": "object",
-                "properties": entity_properties,
-                "required": list(entity_properties),
-                "additionalProperties": False,
-            },
-            "failedDomains": {
-                "type": "array",
-                "items": {"type": "string"},
-                "maxItems": 0,
-            },
-        },
-        "required": ["facts", "entities", "failedDomains"],
-        "additionalProperties": False,
-    }
-    schema["$defs"] = {
-        "fact": _fact_schema(allowed_anchor_ids),
-    }
-    if allowed_anchor_ids is not None:
-        schema["$defs"]["anchorId"] = {"type": "string", "enum": list(allowed_anchor_ids)}
-    return schema
+    """兼容入口：从域合同生成指定业务域的 JSON Schema。"""
+    try:
+        contract = DOMAIN_CONTRACTS[domain]
+    except KeyError as exc:
+        raise ValueError(f"Unknown extraction domain: {domain}") from exc
+    return build_domain_schema(
+        contract,
+        fact_paths=fact_paths,
+        allowed_anchor_ids=allowed_anchor_ids,
+    )
 
 
 def build_domain_prompt(
@@ -303,68 +152,12 @@ def build_domain_prompt(
     *,
     focus_paths: tuple[str, ...] | None = None,
 ) -> str:
-    """构建指定业务域的 Prompt 提示词。
-
-    Prompt 包含三个部分：
-    1. 角色定义与抽取规则（边界约束）。
-    2. 结构信息（非问答段落原文）。
-    3. 问答对（带锚点编号）。
-
-    每个域有独立的语义边界提示（如 case_timeline 要求完整陈述不推断）。
-    """
-    anchor_aliases = _anchor_aliases(document)
-    qa_anchor_ids = {
-        anchor
-        for block in document.questionAnswers
-        for anchor in block.anchorIds
-    }
-    exchanges = "\n".join(
-        f"[问答{index}][锚点:{','.join(anchor_aliases[anchor] for anchor in block.anchorIds)}] 问：{block.question} 答：{block.answer}"
-        for index, block in enumerate(document.questionAnswers, start=1)
-    )
-    structural = "\n".join(
-        f"[锚点:{anchor_aliases[paragraph.id]}][第{page.page}页] {paragraph.text}"
-        for page in document.pages
-        for paragraph in page.paragraphs
-        if paragraph.id not in qa_anchor_ids
-    )
-    requested = focus_paths if focus_paths is not None else DOMAIN_FACT_PATHS[domain]
-    requested_entities = {} if focus_paths is not None else DOMAIN_ENTITY_FIELDS[domain]
-    focus = f"\n本次纠错只返回上述事实路径。" if focus_paths is not None else ""
-    semantic_boundary = (
-        "\ncase.timeline 只在笔录明确形成完整、连续的经过陈述时抽取；"
-        "不得用零散联系、风险提示、转账或交付时间推断。"
-        if domain == "case_timeline"
-        else ""
-    )
-    money_boundary = {
-        "online_money": (
-            "\n线上资金域只记录转账、扫码支付、返款等线上资金行为；"
-            "不得把现金取款或线下交付次数当成线上转账笔数。"
-        ),
-        "offline_delivery": (
-            "\n线下交付域只记录银行取现、现金或实物线下交接；"
-            "不得把线上转账、扫码付款或返款笔数当成取现或线下交付次数。"
-            "只有明确出现银行取现、现金或实物线下交接证据，才能生成取款或线下交付事实与实体。"
-        ),
-    }.get(domain, "")
-    return f"""你是公安机关电信网络诈骗询问笔录的事实抽取器。只抽取证据明确支持的事实，不判断规则状态，不补写、不推测。
-当前业务域：{domain}
-必须逐项返回这些事实路径：{json.dumps(requested, ensure_ascii=False)}{focus}
-必须逐项返回这些实体数组及字段：{json.dumps(requested_entities, ensure_ascii=False)}。文本明确出现某类实体时，即使只发生一次也必须创建一条实体；已明确笔数但逐笔信息缺失时，也必须创建与笔数相同的实体，缺少的实体字段按 missing 或 unknown 返回；只有连实体是否发生及数量都没有事实证据时才能返回空数组。
-clarity 只能是 clear、unclear、unknown、missing。clear/unclear 必须引用下方真实锚点；unknown/missing 不得引用锚点。
-evidenceAnchorIds 只能返回下方 A001 形式的短锚点，不得返回问答序号、原文片段或自行编造的 ID。{semantic_boundary}{money_boundary}
-括号模板说明和填写示例已经从问答中移除，不得把模板指导、问题措辞或空答案当成案件事实。重复转账、返款、取款、联系人切换和线下交付必须逐项保留，不能合并。
-电子方框标记按原文理解：[选中] 表示文档明确选择，可作为事实候选；[未选] 表示文档明确没有选择，不得作为肯定的案件事实；[状态不明] 表示解析无法确认，只能返回不清楚或未知，不得自行判断。
-同一答案中的选择数量不代表解析程序已经判断单选或多选，应结合问题原文理解，不做选择合法性推断。
-每个重复事实使用独立实体，实体 ID 在整个业务域内必须唯一，entityType 必须与所在实体数组一致。
-
-结构信息：
-{structural}
-
-去除模板说明后的问答：
-{exchanges}
-"""
+    """兼容入口：从域合同和固定模板生成提示词。"""
+    try:
+        contract = DOMAIN_CONTRACTS[domain]
+    except KeyError as exc:
+        raise ValueError(f"Unknown extraction domain: {domain}") from exc
+    return render_domain_prompt(document, contract, fact_paths=focus_paths)
 
 
 def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
@@ -597,46 +390,52 @@ async def _request_domain(
     """向模型请求单个业务域的事实抽取。"""
     if not all([QWEN_BASE_URL, QWEN_API_KEY, QWEN_MODEL]):
         raise AppError("model_not_configured", "Qwen 模型尚未配置。", 503)
-    prompt = build_domain_prompt(document, domain, focus_paths=focus_paths)
+    correction_feedback = None
+    if correction is not None:
+        correction_feedback = json.dumps({
+            "code": correction.code,
+            "field": correction.field,
+            "instruction": correction.correction_hint,
+        }, ensure_ascii=False)
+    contract = DOMAIN_CONTRACTS[domain]
+    prompt = render_domain_prompt(
+        document,
+        contract,
+        fact_paths=focus_paths,
+        correction=correction_feedback,
+    )
     messages = [
         {"role": "system", "content": "严格按服务端 Schema 抽取证据事实，只能引用提供的锚点。"},
         {"role": "user", "content": prompt},
     ]
-    if correction is not None:
-        messages.append({
-            "role": "user",
-            "content": "上次结果未通过校验，请完整重做该域。校验反馈：" + json.dumps({
-                "code": correction.code,
-                "field": correction.field,
-                "instruction": correction.correction_hint,
-            }, ensure_ascii=False),
-        })
     log_payload("template_extraction.prompt", prompt, domain=domain, retry=correction is not None)
+    schema = build_domain_schema(
+        contract,
+        fact_paths=focus_paths,
+        allowed_anchor_ids=_evidence_anchor_aliases(document),
+    )
     payload = await request_structured_payload(
         client,
         messages=messages,
-        schema=template_extraction_schema(
-            domain,
-            fact_paths=focus_paths,
-            allowed_anchor_ids=_evidence_anchor_aliases(document),
-        ),
+        schema=schema,
         schema_name=f"extract_{domain}",
     )
+    top_level_fields = set(payload) if isinstance(payload, dict) else set()
+    expected_fields = {"facts", "entities", "failedDomains"}
+    if top_level_fields != expected_fields:
+        raise AppError(
+            "structured_output_not_enforced",
+            "模型接口接受了 JSON Schema 参数，但返回结果未执行该 Schema。",
+            502,
+            field="payload",
+            correction_hint="structured_output_not_enforced",
+        )
+    validate_schema_payload(payload, schema, domain)
     try:
         extraction = CaseExtraction.model_validate(payload)
         _restore_anchor_aliases(document, extraction)
         return extraction
     except ValidationError as exc:
-        top_level_fields = set(payload) if isinstance(payload, dict) else set()
-        expected_fields = {"facts", "entities", "failedDomains"}
-        if not top_level_fields.issubset(expected_fields) or not expected_fields.issubset(top_level_fields):
-            raise AppError(
-                "structured_output_not_enforced",
-                "模型接口接受了 JSON Schema 参数，但返回结果未执行该 Schema。",
-                502,
-                field="payload",
-                correction_hint="structured_output_not_enforced",
-            ) from exc
         raise AppError(
             "invalid_model_schema",
             f"{domain} 域结果不符合结构约束。",

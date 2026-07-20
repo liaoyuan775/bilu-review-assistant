@@ -237,9 +237,10 @@ def test_domain_schema_is_strict_and_requires_all_declared_fact_paths():
     facts = schema["properties"]["facts"]
     assert facts["additionalProperties"] is False
     assert facts["required"] == list(extraction_mod.DOMAIN_FACT_PATHS["online_money"])
-    assert all(value == {"$ref": "#/$defs/fact"} for value in facts["properties"].values())
-    assert schema["$defs"]["fact"]["additionalProperties"] is False
-    assert "sourceConfidence" not in schema["$defs"]["fact"]["properties"]
+    assert facts["properties"]["online_money.used"]["properties"]["value"]["type"] == ["boolean", "null"]
+    assert facts["properties"]["online_money.total"]["properties"]["value"]["type"] == ["number", "null"]
+    assert all(value["additionalProperties"] is False for value in facts["properties"].values())
+    assert all("sourceConfidence" not in value["properties"] for value in facts["properties"].values())
 
 
 def test_online_money_prompt_renders_type_and_boundary():
@@ -268,14 +269,33 @@ def test_record_types_schema_allows_string_array():
     assert value["items"] == {"type": "string"}
 
 
+def test_request_uses_same_contract_for_prompt_and_schema(monkeypatch):
+    payload = _missing_domain("online_money").model_dump()
+    for fact in payload["facts"].values():
+        fact.pop("sourceConfidence")
+    request = AsyncMock(return_value=payload)
+    monkeypatch.setattr(extraction_mod, "request_structured_payload", request)
+
+    asyncio.run(extraction_mod._request_domain(
+        _DummyClient(),
+        _document(),
+        "online_money",
+    ))
+
+    kwargs = request.await_args.kwargs
+    assert "是否发生线上资金转出" in kwargs["messages"][1]["content"]
+    used = kwargs["schema"]["properties"]["facts"]["properties"]["online_money.used"]
+    assert used["properties"]["value"]["type"] == ["boolean", "null"]
+
+
 def test_domain_schema_constrains_evidence_to_document_anchor_aliases():
     schema = extraction_mod.template_extraction_schema(
         "header_procedure",
         allowed_anchor_ids=("A001", "A002"),
     )
 
-    assert next(iter(schema["properties"]["facts"]["properties"].values())) == {"$ref": "#/$defs/fact"}
-    evidence = schema["$defs"]["fact"]["properties"]["evidenceAnchorIds"]
+    fact = next(iter(schema["properties"]["facts"]["properties"].values()))
+    evidence = fact["properties"]["evidenceAnchorIds"]
     assert evidence["maxItems"] == 3
     assert evidence["items"] == {
         "$ref": "#/$defs/anchorId",

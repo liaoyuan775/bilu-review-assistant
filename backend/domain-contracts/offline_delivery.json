@@ -2,7 +2,7 @@
   "domain": "offline_delivery",
   "title": "线下取现与交付",
   "include": ["银行取现", "现金或实物来源", "逐次线下交付", "银行风险提示"],
-  "exclude": ["线上转账或扫码付款", "线上返款", "把线上转账笔数当作取现次数"],
+  "exclude": ["不得把线上转账、扫码付款或返款笔数当成取现或线下交付次数", "只有明确出现银行取现、现金或实物线下交接证据才能生成实体"],
   "facts": {
     "cash.bank_appointment": {"description": "取款前是否预约银行", "valueSchema": {"type": ["boolean", "null"]}},
     "cash.bank_warning_channel": {"description": "银行风险提示渠道", "valueSchema": {"type": ["string", "null"]}},

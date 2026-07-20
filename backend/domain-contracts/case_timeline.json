@@ -2,7 +2,7 @@
   "domain": "case_timeline",
   "title": "案件经过时间线",
   "include": ["案件概述与完整经过", "案发时间地点", "个人信息泄露", "持续联系原因"],
-  "exclude": ["逐笔转账", "逐次取现", "零散事实拼接出的完整时间线"],
+  "exclude": ["逐笔转账", "逐次取现", "case.timeline 只在笔录明确形成完整、连续的经过陈述时抽取", "不得用零散联系、风险提示、转账或交付时间推断"],
   "facts": {
     "case.channel_changes": {"description": "联络渠道变更情况", "valueSchema": {"type": ["string", "null"]}},
     "case.contact_method": {"description": "主要联系方式", "valueSchema": {"type": ["string", "null"]}},
