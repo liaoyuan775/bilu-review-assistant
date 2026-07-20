@@ -63,6 +63,7 @@ def render_domain_prompt(
         f"[问答{index}][锚点:{','.join(aliases[anchor] for anchor in block.anchorIds)}] "
         f"问：{block.question} 答：{block.answer}"
         for index, block in enumerate(document.questionAnswers, start=1)
+        if block.answerClarity != "blank"
     )
     structural = "\n".join(
         f"[锚点:{aliases[paragraph.id]}][第{page.page}页] {paragraph.text}"

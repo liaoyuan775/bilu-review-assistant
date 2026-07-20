@@ -289,6 +289,50 @@ def test_request_uses_same_contract_for_prompt_and_schema(monkeypatch):
     assert used["properties"]["value"]["type"] == ["boolean", "null"]
 
 
+def test_domain_prompt_hides_blank_answer_anchor_blocks():
+    document = _document()
+    document.questionAnswers[0].answerClarity = "blank"
+
+    prompt = render_domain_prompt(document, DOMAIN_CONTRACTS["online_money"])
+
+    assert "[锚点:A001,A002]" not in prompt
+
+
+def test_invalid_or_missing_model_evidence_is_normalized_fail_closed():
+    payload = {
+        "facts": {
+            "money.credentials_disclosed": {
+                "value": True,
+                "clarity": "clear",
+                "evidenceAnchorIds": ["A022"],
+            },
+            "money.remote_control_used": {
+                "value": True,
+                "clarity": "clear",
+                "evidenceAnchorIds": [],
+            },
+        },
+        "entities": {},
+        "failedDomains": [],
+    }
+
+    normalized = extraction_mod._normalize_unsupported_evidence(payload, {"A001"})
+
+    assert normalized == ["money.credentials_disclosed", "money.remote_control_used"]
+    for fact in payload["facts"].values():
+        assert fact == {"value": None, "clarity": "unknown", "evidenceAnchorIds": []}
+
+
+def test_valid_model_evidence_is_not_normalized():
+    fact = {"value": True, "clarity": "clear", "evidenceAnchorIds": ["A001"]}
+    payload = {"facts": {"online_money.used": fact.copy()}, "entities": {}, "failedDomains": []}
+
+    normalized = extraction_mod._normalize_unsupported_evidence(payload, {"A001"})
+
+    assert normalized == []
+    assert payload["facts"]["online_money.used"] == fact
+
+
 def test_domain_schema_constrains_evidence_to_document_anchor_aliases():
     schema = extraction_mod.template_extraction_schema(
         "header_procedure",
@@ -357,7 +401,7 @@ def test_focused_domain_schema_requires_only_selected_fact_paths():
     assert schema["properties"]["entities"]["properties"] == {}
 
 
-def test_prompt_excludes_parenthetical_template_guidance():
+def test_prompt_excludes_question_when_only_answer_is_template_guidance():
     document = _document(
         "讲一下基本情况？（只能作为模板指导）",
         "（不要当作案件事实）",
@@ -365,7 +409,7 @@ def test_prompt_excludes_parenthetical_template_guidance():
 
     prompt = extraction_mod.build_domain_prompt(document, "header_procedure")
 
-    assert "讲一下基本情况？" in prompt
+    assert "讲一下基本情况？" not in prompt
     assert "只能作为模板指导" not in prompt
     assert "不要当作案件事实" not in prompt
 

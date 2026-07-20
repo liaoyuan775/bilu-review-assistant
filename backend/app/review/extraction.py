@@ -193,6 +193,43 @@ def _evidence_anchor_aliases(document: ParsedDocument) -> tuple[str, ...]:
     return tuple(alias for anchor, alias in aliases.items() if anchor not in blank_anchors)
 
 
+def _normalize_unsupported_evidence(payload: dict, allowed_anchor_ids: set[str]) -> list[str]:
+    """Fail closed when a claimed fact has no usable evidence anchor."""
+    normalized: list[str] = []
+
+    def normalize(path: str, fact: object) -> None:
+        if not isinstance(fact, dict):
+            return
+        clarity = fact.get("clarity")
+        anchors = fact.get("evidenceAnchorIds")
+        if not isinstance(anchors, list):
+            return
+        unsupported_claim = clarity in {"clear", "unclear"} and (
+            not anchors or any(anchor not in allowed_anchor_ids for anchor in anchors)
+        )
+        unsupported_absence = clarity in {"unknown", "missing"} and (
+            fact.get("value") is not None or bool(anchors)
+        )
+        if not unsupported_claim and not unsupported_absence:
+            return
+        fact["value"] = None
+        fact["clarity"] = "unknown" if unsupported_claim else clarity
+        fact["evidenceAnchorIds"] = []
+        normalized.append(path)
+
+    for path, fact in payload.get("facts", {}).items():
+        normalize(path, fact)
+    for entity_type, entities in payload.get("entities", {}).items():
+        if not isinstance(entities, list):
+            continue
+        for index, entity in enumerate(entities):
+            if not isinstance(entity, dict):
+                continue
+            for field, fact in entity.get("fields", {}).items():
+                normalize(f"{entity_type}[{index}].{field}", fact)
+    return normalized
+
+
 def _restore_anchor_aliases(document: ParsedDocument, extraction: CaseExtraction) -> None:
     """将模型输出的短锚点别名恢复为真实锚点 ID。
 
@@ -415,10 +452,11 @@ async def _request_domain(
         {"role": "user", "content": prompt},
     ]
     log_payload("template_extraction.prompt", prompt, domain=domain, retry=correction is not None)
+    allowed_anchor_ids = _evidence_anchor_aliases(document)
     schema = build_domain_schema(
         contract,
         fact_paths=focus_paths,
-        allowed_anchor_ids=_evidence_anchor_aliases(document),
+        allowed_anchor_ids=allowed_anchor_ids,
     )
     payload = await request_structured_payload(
         client,
@@ -435,6 +473,14 @@ async def _request_domain(
             502,
             field="payload",
             correction_hint="structured_output_not_enforced",
+        )
+    normalized_evidence = _normalize_unsupported_evidence(payload, set(allowed_anchor_ids))
+    if normalized_evidence:
+        log_event(
+            logging.WARNING,
+            "template_extraction.evidence_downgraded",
+            domain=domain,
+            fields=normalized_evidence,
         )
     validate_schema_payload(payload, schema, domain)
     try:
