@@ -10,7 +10,9 @@ from app.core.errors import AppError
 from app.core.models import DocumentPage, DocumentParagraph, ParsedDocument, RuleStatus, SourceType
 from app.parsing.question_answer import reconstruct_question_answers
 from app.review import extraction as extraction_mod
+from app.data.domain_contracts import DOMAIN_CONTRACTS
 from app.llm import qwen
+from app.review.domain_contract_rendering import build_domain_schema, render_domain_prompt
 from app.core.template_models import (
     CaseExtraction,
     ExtractedEntity,
@@ -238,6 +240,32 @@ def test_domain_schema_is_strict_and_requires_all_declared_fact_paths():
     assert all(value == {"$ref": "#/$defs/fact"} for value in facts["properties"].values())
     assert schema["$defs"]["fact"]["additionalProperties"] is False
     assert "sourceConfidence" not in schema["$defs"]["fact"]["properties"]
+
+
+def test_online_money_prompt_renders_type_and_boundary():
+    prompt = render_domain_prompt(_document(), DOMAIN_CONTRACTS["online_money"])
+
+    assert "online_money.used" in prompt
+    assert "boolean|null" in prompt
+    assert "银行取现" in prompt
+
+
+def test_online_money_schema_rejects_amount_in_used_flag():
+    schema = build_domain_schema(
+        DOMAIN_CONTRACTS["online_money"],
+        allowed_anchor_ids=("A001",),
+    )
+
+    used = schema["properties"]["facts"]["properties"]["online_money.used"]
+    assert used["properties"]["value"]["type"] == ["boolean", "null"]
+
+
+def test_record_types_schema_allows_string_array():
+    schema = build_domain_schema(DOMAIN_CONTRACTS["risk_and_evidence"])
+
+    value = schema["properties"]["facts"]["properties"]["evidence.record_types"]["properties"]["value"]
+    assert value["type"] == ["array", "null"]
+    assert value["items"] == {"type": "string"}
 
 
 def test_domain_schema_constrains_evidence_to_document_anchor_aliases():
