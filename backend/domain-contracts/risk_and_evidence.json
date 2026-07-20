@@ -7,7 +7,6 @@
     "evidence.can_provide": {"description": "相关证据能否提供", "valueSchema": {"type": ["boolean", "null"]}},
     "evidence.record_types": {"description": "留存的证据记录类型", "valueSchema": {"type": ["array", "null"], "items": "string"}},
     "evidence.records_retained": {"description": "相关记录是否留存", "valueSchema": {"type": ["boolean", "null"]}},
-    "evidence.voice_recording_available": {"description": "语音录音能否提供", "valueSchema": {"type": ["boolean", "null"]}},
     "evidence.voice_recording_exists": {"description": "是否存在语音录音", "valueSchema": {"type": ["boolean", "null"]}},
     "prevention.anti_fraud_app_installed": {"description": "是否安装国家反诈中心应用", "valueSchema": {"type": ["boolean", "null"]}},
     "prevention.community_police_publicity": {"description": "是否接受社区民警反诈宣传", "valueSchema": {"type": ["boolean", "null"]}},

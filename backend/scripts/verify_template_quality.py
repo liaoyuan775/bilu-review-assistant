@@ -38,13 +38,6 @@ from scripts.generate_template_gold_cases import (  # noqa: E402
 EXPECTED_MODEL = "Qwen3.6-35B-A3B"
 
 GOLD_SEMANTIC_ALIAS_PATHS = {
-    "case.initial_channel",
-    "case.contact_method",
-    "case.initial_contact",
-    "case.channel_changes",
-    "case.total_loss",
-    "case.payment_summary",
-    "case.rebate_summary",
     "privacy.disclosure_occurred",
     "privacy.disclosed_information",
     "timeline.incident_at",
@@ -474,7 +467,7 @@ def evaluate_offline_quality(corpus: dict, root: Path) -> dict:
             or issue.status == RuleStatus.INCONSISTENT
             or bool(issue.missingFields)
         )
-        anchor_pass += issue.status == RuleStatus.MISSING or bool(issue.anchorIds)
+        anchor_pass += issue.status in {RuleStatus.MISSING, RuleStatus.NEEDS_MANUAL_REVIEW} or bool(issue.anchorIds)
         entity_pass += rule.repeatEntity is None or bool(extraction.entities.get(rule.repeatEntity.entityType))
 
     conditional = [rule for rule in rules.values() if rule.appliesWhen]

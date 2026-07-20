@@ -1,6 +1,6 @@
 """Qwen JSON Schema 请求适配器。
 
-当前模板审查通过本模块抽取七个业务域的事实，再由模板规则引擎生成结果。
+当前模板审查通过本模块抽取六个业务域的事实，再由模板规则引擎生成结果。
 本模块不包含旧版三现四流模型直审逻辑。
 """
 
@@ -88,7 +88,7 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
             "model_unreachable",
             "Qwen 模型服务当前不可达，请检查网络或模型配置。",
             503,
-            retry_strategy="schema",
+            retry_strategy="transient",
         ) from error
 
     if response.status_code in {401, 403}:
@@ -116,7 +116,7 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
                 502,
             )
         if response.status_code in TRANSIENT_STATUS_CODES:
-            raise AppError("model_request_failed", f"Qwen 返回 HTTP {response.status_code}。", 502, retry_strategy="schema")
+            raise AppError("model_request_failed", f"Qwen 返回 HTTP {response.status_code}。", 502, retry_strategy="transient")
         raise AppError("model_request_failed", f"Qwen 返回 HTTP {response.status_code}。", 502)
 
     try:

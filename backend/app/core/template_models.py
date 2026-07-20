@@ -88,6 +88,7 @@ class RepeatEntityRule(BaseModel):
     entityType: str
     countPath: str | None = None
     requiredFields: list[str] = Field(min_length=1)
+    advisoryFields: list[str] = Field(default_factory=list)
 
 
 class ConsistencyCheck(BaseModel):
@@ -137,6 +138,11 @@ class TemplateRule(BaseModel):
     scope: Literal["common", "conditional", "structural", "repeated"]
     appliesWhen: RuleCondition | None = None
     requiredFields: list[str] = Field(min_length=1)
+    questionPatterns: list[str] = Field(default_factory=list)
+    answerPresenceSatisfies: bool = False
+    explicitAnswerFields: list[str] = Field(default_factory=list)
+    requiredValues: dict[str, Any] = Field(default_factory=dict)
+    advisoryFields: list[str] = Field(default_factory=list)
     repeatEntity: RepeatEntityRule | None = None
     consistencyChecks: list[ConsistencyCheck] = Field(default_factory=list)
     suggestedQuestion: str
@@ -197,7 +203,7 @@ class ExtractedEntity(BaseModel):
 
 
 class CaseExtraction(BaseModel):
-    """整个案件的事实抽取结果 — 7 个业务域合并后的统一结构。
+    """整个案件的事实抽取结果 — 6 个业务域合并后的统一结构。
 
     属性：
         facts:         全部事实的键值对（dot.path → ExtractedFact）
@@ -236,6 +242,7 @@ class TemplateReviewIssue(BaseModel):
     group: TemplateGroup
     status: RuleStatus
     missingFields: list[str] = Field(default_factory=list)
+    advisories: list[str] = Field(default_factory=list)
     reason: str
     anchorIds: list[str] = Field(default_factory=list)
     suggestedQuestion: str

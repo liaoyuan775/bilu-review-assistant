@@ -97,7 +97,7 @@ _GROUP_DOMAINS = {
     "MONEY": "online_money",
     "CASH": "offline_delivery",
     "OFFLINE": "offline_delivery",
-    "EXTRA": "special_scenarios",
+    "EXTRA": "case_timeline",
 }
 
 _REQUIRED_ARTIFACTS = list(GENERATED_REVIEW_ARTIFACT_TYPES)

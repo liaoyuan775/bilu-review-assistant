@@ -6,20 +6,19 @@
 - 不负责规则判断（由 rules.py 完成），只负责从笔录中抽取结构化证据。
 
 核心流程：
-1. 将 7 个业务域并行发给 Qwen 模型。
+1. 将 6 个业务域并行发给 Qwen 模型。
 2. 每个域有独立的事实路径集合和 JSON Schema。
 3. 模型输出经 _restore_anchor_aliases 将短锚点转回真实 ID。
 4. validate_domain_extraction 校验锚点有效性、实体数量一致性等。
-5. 每个域最多重试 3 次，失败后抛出 TemplateDomainFailure。
+5. 网络瞬时故障与 Schema/JSON 校验失败分别按环境配置做域级重试。
 
-7 个业务域：
+6 个业务域：
 1. header_procedure   — 笔录头部信息与程序性事项
 2. case_timeline      — 案件经过时间线
 3. contact_channels   — 接触渠道（含 contact_switches 实体）
 4. risk_and_evidence  — 风险与证据
 5. online_money       — 线上资金（含 transfers、rebates 实体）
 6. offline_delivery   — 线下交付（含 withdrawals、offline_handoffs 实体）
-7. special_scenarios  — 特殊场景标记
 
 依赖关系：
 - core/config.py: QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL。
@@ -29,7 +28,7 @@
 - core/models.py: 核心 Pydantic 模型。
 - core/template_models.py: CaseExtraction、ExtractedFact 等模板模型。
 - llm/qwen.py: request_structured_payload 通用结构化提取。
-- review/rules.py: evaluate_template_rules 规则引擎（用于 recheck_ambiguous_facts）。
+- review/rules.py: evaluate_template_rules 规则引擎。
 """
 
 import asyncio
@@ -49,6 +48,7 @@ from app.core.config import (
     QWEN_DOMAIN_CONCURRENCY,
     QWEN_MODEL,
     QWEN_SCHEMA_RETRIES,
+    QWEN_TRANSIENT_RETRIES,
 )
 from app.data.domain_contracts import (
     DOMAIN_CONTRACTS,
@@ -73,15 +73,14 @@ from app.review.rules import _boolean_value, evaluate_template_rules
 from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue, TemplateRule
 
 
-# 可通过 QWEN_DOMAIN_CONCURRENCY 调整，范围 1-7。
+# 可通过 QWEN_DOMAIN_CONCURRENCY 调整，范围 1-6。
 DEFAULT_DOMAIN_CONCURRENCY = QWEN_DOMAIN_CONCURRENCY
-MAX_FACTS_PER_SCHEMA_REQUEST = 8
 
 
 class TemplateDomainFailure(AppError):
     """业务域抽取失败异常 — 携带部分结果和失败信息。
 
-    当某个域在重试 3 次后仍然失败时抛出。
+    当某个域在配置的重试次数后仍然失败时抛出。
     调用方（review.py）利用 partial_extraction 做部分结果持久化。
     """
 
@@ -230,6 +229,58 @@ def _normalize_unsupported_evidence(payload: dict, allowed_anchor_ids: set[str])
                 continue
             for field, fact in entity.get("fields", {}).items():
                 normalize(f"{entity_type}[{index}].{field}", fact)
+    return normalized
+
+
+def _normalize_known_fact_deviations(document: ParsedDocument, payload: dict) -> list[str]:
+    """Normalize known provider deviations only when complete QA evidence is unambiguous."""
+    patterns_by_path = {
+        "privacy.disclosure_occurred": ("透露过", "个人信息"),
+    }
+    aliases = _anchor_aliases(document)
+    normalized: list[str] = []
+    facts = payload.get("facts")
+    if not isinstance(facts, dict):
+        return normalized
+    for path, patterns in patterns_by_path.items():
+        value = facts.get(path)
+        if isinstance(value, dict) or value is None:
+            continue
+        matches = [
+            block
+            for block in document.questionAnswers
+            if block.answerClarity != "blank"
+            and all(pattern in block.question for pattern in patterns)
+            and (block.id in aliases or any(anchor in aliases for anchor in block.anchorIds))
+        ]
+        if len(matches) != 1:
+            continue
+        evidence_id = (
+            matches[0].id
+            if matches[0].id in aliases
+            else next(anchor for anchor in reversed(matches[0].anchorIds) if anchor in aliases)
+        )
+        facts[path] = {
+            "value": value,
+            "clarity": "clear",
+            "evidenceAnchorIds": [aliases[evidence_id]],
+        }
+        normalized.append(path)
+    chat_used = facts.get("contact.chat_used")
+    ambiguous_chat = [
+        block
+        for block in document.questionAnswers
+        if "聊天软件" in block.question
+        and "无法判断" in block.answer
+        and "是否使用过" in block.answer
+    ]
+    if isinstance(chat_used, dict) and len(ambiguous_chat) == 1:
+        facts["contact.chat_used"] = {
+            "value": None,
+            "clarity": "unknown",
+            "evidenceAnchorIds": [],
+        }
+        normalized.append("contact.chat_used")
     return normalized
 
 
@@ -450,7 +501,7 @@ async def _request_domain(
         correction_feedback = json.dumps({
             "code": correction.code,
             "field": correction.field,
-            "instruction": correction.correction_hint,
+            "instruction": correction.correction_hint or correction.message,
         }, ensure_ascii=False)
     contract = DOMAIN_CONTRACTS[domain]
     prompt = render_domain_prompt(
@@ -486,6 +537,14 @@ async def _request_domain(
             field="payload",
             correction_hint="structured_output_not_enforced",
         )
+    normalized_facts = _normalize_known_fact_deviations(document, payload)
+    if normalized_facts:
+        log_event(
+            logging.WARNING,
+            "template_extraction.fact_normalized",
+            domain=domain,
+            fields=normalized_facts,
+        )
     normalized_evidence = _normalize_unsupported_evidence(payload, set(allowed_anchor_ids))
     if normalized_evidence:
         log_event(
@@ -520,7 +579,7 @@ async def extract_template_facts(
 ) -> CaseExtraction:
     """对指定业务域并行执行事实抽取。
 
-    每个域最多重试 3 次，使用 asyncio.Semaphore 控制并发数。
+    每个域使用一个完整 Schema 请求，并用 asyncio.Semaphore 控制并发数。
     成功的结果被合并到统一的 CaseExtraction 中。
 
     Args:
@@ -548,55 +607,39 @@ async def extract_template_facts(
                 if focus_paths is not None
                 else None
             )
-            if domain_focus_paths is not None:
-                request_batches: tuple[tuple[str, ...] | None, ...] = (domain_focus_paths,)
-            elif not DOMAIN_ENTITY_FIELDS[domain] and len(DOMAIN_FACT_PATHS[domain]) > MAX_FACTS_PER_SCHEMA_REQUEST:
-                paths = DOMAIN_FACT_PATHS[domain]
-                request_batches = tuple(
-                    paths[index:index + MAX_FACTS_PER_SCHEMA_REQUEST]
-                    for index in range(0, len(paths), MAX_FACTS_PER_SCHEMA_REQUEST)
-                )
-            else:
-                request_batches = (None,)
             async with semaphore:
                 try:
-                    extracted = CaseExtraction()
-                    for batch_paths in request_batches:
-                        correction: AppError | None = None
-                        for attempt in range(1 + QWEN_SCHEMA_RETRIES):
-                            try:
-                                batch = await _request_domain(
-                                    client,
-                                    document,
-                                    domain,
-                                    correction,
-                                    batch_paths,
-                                )
-                                validate_domain_extraction(
-                                    document,
-                                    domain,
-                                    batch,
-                                    fact_paths=batch_paths,
-                                )
-                                break
-                            except AppError as error:
-                                if error.code in {"model_not_configured", "model_auth_failed"}:
-                                    raise
-                                if error.retry_strategy != "schema":
-                                    raise
-                                correction = (
-                                    None
-                                    if error.code in {"model_unreachable", "model_request_failed"}
-                                    else error
-                                )
-                                if attempt == QWEN_SCHEMA_RETRIES:
-                                    raise
-                        overlap = set(extracted.facts).intersection(batch.facts)
-                        if overlap:
-                            raise AppError("template_domain_overlap", "业务域批次返回了重复事实路径。", 502, field=sorted(overlap)[0])
-                        extracted.facts.update(batch.facts)
-                        for entity_type, entities in batch.entities.items():
-                            extracted.entities.setdefault(entity_type, []).extend(entities)
+                    transient_attempts = 0
+                    schema_attempts = 0
+                    correction: AppError | None = None
+                    while True:
+                        try:
+                            extracted = await _request_domain(
+                                client,
+                                document,
+                                domain,
+                                correction,
+                                domain_focus_paths,
+                            )
+                            validate_domain_extraction(
+                                document,
+                                domain,
+                                extracted,
+                                fact_paths=domain_focus_paths,
+                            )
+                            break
+                        except AppError as error:
+                            transient = error.code == "model_unreachable" or error.retry_strategy == "transient"
+                            if transient:
+                                if transient_attempts < QWEN_TRANSIENT_RETRIES:
+                                    transient_attempts += 1
+                                    continue
+                                raise
+                            if error.retry_strategy == "schema" and schema_attempts < QWEN_SCHEMA_RETRIES:
+                                schema_attempts += 1
+                                correction = error
+                                continue
+                            raise
                     validate_domain_extraction(
                         document,
                         domain,
@@ -769,7 +812,7 @@ def _review_result(document: ParsedDocument, issue: TemplateReviewIssue) -> Revi
                         None,
                     )
                     if paragraph_location is not None:
-                        located.append((anchor_index[paragraph_id], paragraph_location))
+                        located.append((anchor_index[paragraph_id][0], paragraph_location))
         if not located:
             located = [anchor_index[anchor] for anchor in issue.anchorIds if anchor in anchor_index]
     else:
@@ -794,7 +837,7 @@ def _review_result(document: ParsedDocument, issue: TemplateReviewIssue) -> Revi
         evidenceAnchorIds=issue.anchorIds,
         reason=issue.reason,
         suggestedQuestion=issue.suggestedQuestion,
-        advisories=[],
+        advisories=issue.advisories,
         manualDecision=ManualDecision(),
         source=f"内部询问笔录模板 v{TEMPLATE_RULE_CATALOG.version}（{QWEN_MODEL} 事实抽取，确定性规则校验）",
         severity=issue.severity,
@@ -822,6 +865,54 @@ def _merge_refreshed_domains(
     return merged
 
 
+def _question_states(
+    document: ParsedDocument,
+    rules: list[TemplateRule],
+) -> tuple[dict[str, str], dict[str, list[str]]]:
+    """Match configured rule questions to complete parsed QA blocks."""
+    def matches(question: str, patterns: list[str]) -> bool:
+        normalized_question = re.sub(r"[\W_]+", "", question.casefold())
+        return all(
+            any(
+                normalized_alternative in normalized_question
+                for alternative in pattern.split("|")
+                if (normalized_alternative := re.sub(r"[\W_]+", "", alternative.casefold()))
+            )
+            for pattern in patterns
+        )
+
+    states: dict[str, str] = {}
+    anchors: dict[str, list[str]] = {}
+    evidence_block_ids = {block.id for block in document.evidenceBlocks}
+    for rule in rules:
+        if not rule.questionPatterns:
+            continue
+        matched = [
+            block
+            for block in document.questionAnswers
+            if matches(block.question, rule.questionPatterns)
+        ]
+        if not matched:
+            continue
+        states[rule.ruleId] = (
+            "blank"
+            if all(block.answerClarity == "blank" for block in matched)
+            else "answered"
+            if any(block.answerClarity == "clear" for block in matched)
+            else "unclear"
+        )
+        anchors[rule.ruleId] = list(dict.fromkeys(
+            anchor
+            for block in matched
+            for anchor in (
+                [block.id]
+                if block.id in evidence_block_ids
+                else block.anchorIds
+            )
+        ))
+    return states, anchors
+
+
 async def run_template_review(
     document: ParsedDocument,
     *,
@@ -834,10 +925,9 @@ async def run_template_review(
     """执行完整的模板审查流程。
 
     这是模板审查的顶层入口：
-    1. 事实抽取（并行 7 域）。
+    1. 事实抽取（并行 6 域）。
     2. 规则评估。
-    3. 如果有 NEEDS_MANUAL_REVIEW → 重新抽取关键路径 → 重新评估。
-    4. 生成前端可用的 ReviewResult 列表。
+    3. 生成前端可用的 ReviewResult 列表。
 
     Args:
         document:        标准化笔录文档。
@@ -863,22 +953,24 @@ async def run_template_review(
         if base_extraction is not None
         else refreshed
     )
-    issues = evaluate_template_rules(extraction, selected_rules)
-    ambiguous_ids = {
-        issue.ruleId
-        for issue in issues
-        if issue.status == RuleStatus.NEEDS_MANUAL_REVIEW
-    }
-    if ambiguous_ids:
-        ambiguous_rules = [rule for rule in selected_rules if rule.ruleId in ambiguous_ids]
-        extraction = await recheck_ambiguous_facts(
-            document,
-            extraction,
-            timings,
-            ambiguous_rules,
-            max_concurrency=max_concurrency,
-        )
-        issues = evaluate_template_rules(extraction, selected_rules)
+    question_states, question_anchors = _question_states(document, selected_rules)
+    issues = evaluate_template_rules(extraction, selected_rules, question_states)
+    rules_by_id = {rule.ruleId: rule for rule in selected_rules}
+    for issue in issues:
+        if rules_by_id[issue.ruleId].answerPresenceSatisfies:
+            for anchor in question_anchors.get(issue.ruleId, []):
+                if anchor not in issue.anchorIds:
+                    issue.anchorIds.append(anchor)
+        if (
+            issue.status == RuleStatus.INCOMPLETE
+            and question_states.get(issue.ruleId) == "blank"
+        ):
+            issue.anchorIds = list(question_anchors.get(issue.ruleId, []))
+            continue
+        if issue.status in {RuleStatus.MISSING, RuleStatus.INCOMPLETE, RuleStatus.NEEDS_MANUAL_REVIEW}:
+            for anchor in question_anchors.get(issue.ruleId, []):
+                if anchor not in issue.anchorIds:
+                    issue.anchorIds.append(anchor)
     results = [_review_result(document, issue) for issue in issues]
     log_payload(
         "template_review.results",

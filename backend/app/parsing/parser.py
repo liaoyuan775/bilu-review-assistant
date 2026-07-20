@@ -212,14 +212,29 @@ async def _parse_docx(filename: str, content: bytes) -> ParsedDocument:
     """解析 DOCX 文件：读取 OpenXML → 提取段落 → 转写图片 → 分页 → 问答重建。"""
     try:
         package = read_docx_parts(content)
-        blocks = [
+        native_blocks = [
             DocumentParagraph(text=_normalize(block.text), sourceType=block.source_type)
             for block in package.blocks
             if _normalize(block.text)
         ]
     except Exception as exc:
         raise AppError("parse_failed", "DOCX 文件无法解析，请确认文件未损坏。", 422) from exc
+
+    positioned_images: dict[int, list] = {}
+    trailing_images = []
     for image_part in package.images:
+        if image_part.block_index is None:
+            trailing_images.append(image_part)
+        else:
+            positioned_images.setdefault(image_part.block_index, []).append(image_part)
+
+    blocks: list[DocumentParagraph] = []
+    for block_index, native_block in enumerate(native_blocks):
+        for image_part in positioned_images.get(block_index, []):
+            log_event(logging.DEBUG, "parser.docx_image", filename=filename, media_type=image_part.media_type, bytes=len(image_part.content))
+            blocks.extend(_vision_blocks(await transcribe_image(image_part.content, image_part.media_type)))
+        blocks.append(native_block)
+    for image_part in [*positioned_images.get(len(native_blocks), []), *trailing_images]:
         image = image_part.content
         media_type = image_part.media_type
         log_event(logging.DEBUG, "parser.docx_image", filename=filename, media_type=media_type, bytes=len(image))

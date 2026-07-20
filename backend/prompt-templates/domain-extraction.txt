@@ -4,6 +4,9 @@
 抽取边界：
 {{DOMAIN_BOUNDARY}}
 
+本域易错规则：
+{{DOMAIN_INSTRUCTIONS}}
+
 本次请求合同：
 {{REQUESTED_CONTRACT}}
 

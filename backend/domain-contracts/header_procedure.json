@@ -14,7 +14,6 @@
     "procedure.truth_notice_confirmed": {"description": "是否确认如实作答义务", "valueSchema": {"type": ["boolean", "null"]}},
     "record.interviewers": {"description": "询问人员", "valueSchema": {"type": ["string", "null"]}},
     "record.location": {"description": "询问地点", "valueSchema": {"type": ["string", "null"]}},
-    "record.respondent": {"description": "被询问人", "valueSchema": {"type": ["string", "null"]}},
     "record.signatures": {"description": "签名确认情况", "valueSchema": {"type": ["string", "null"]}},
     "record.started_at": {"description": "询问开始时间", "valueSchema": {"type": ["string", "null"]}},
     "victim.age": {"description": "被害人年龄", "valueSchema": {"type": ["integer", "null"], "minimum": 0}},

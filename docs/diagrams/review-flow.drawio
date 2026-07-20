@@ -1,0 +1,220 @@
+<mxfile>
+  <diagram id="raster2drawio" name="Page-1">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="upload" value="上传 DOCX / PDF&#xa;前端 4173" style="shape=parallelogram;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="180" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="filecheck" value="文件类型、大小、ZIP 安全校验" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="300" y="40" width="210" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="parse" value="DOCX OpenXML / PDF 解析&#xa;段落、表格、页眉页脚、图片" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="590" y="30" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="vision" value="图片 VLM 转写&#xa;按正文原始位置插回" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="920" y="40" width="210" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ordered" value="有序 DocumentParagraph&#xa;稳定 ID、页码、字符范围、来源类型" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="30" width="250" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="qa" value="完整 QA 重建&#xa;问 + 答 + 图片转写 = 一个证据块" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="120" y="210" width="250" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="nonqa" value="非 QA 原文保留&#xa;text 证据块" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="460" y="220" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="victim" value="victimProfile&#xa;正文/表格正则，基本信息 QA 兜底" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="210" width="250" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="evidence" value="统一 EvidenceBlock&#xa;短锚点 A001..." style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="220" width="210" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="orchestrator" value="6 域编排器&#xa;Semaphore 并发上限 6" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="390" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="commonprompt" value="公共提示词&#xa;锚点、禁止推测、必须逐项返回" style="whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="340" y="380" width="230" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="domainprompt" value="6 个域提示文件&#xa;边界、字段语义、易错否定规则" style="whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="650" y="380" width="230" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="contracts" value="6 个 domain-contract JSON&#xa;约 80 个事实 + 实体字段" style="whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="960" y="380" width="230" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="builder" value="运行时生成&#xa;域提示词 + JSON Schema" style="whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="390" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="qwen" value="Qwen 6 个并发请求&#xa;strict=true&#xa;enable_thinking=false&#xa;禁止 plain/tool fallback" style="whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1580" y="370" width="240" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="transient" value="网络/超时/HTTP 5xx?&#xa;按 QWEN_TRANSIENT_RETRIES 重试" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="580" width="250" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="normalize" value="服务端安全归一化&#xa;锚点、已知语义偏差" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="400" y="590" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="validate" value="Pydantic + 域合同校验&#xa;路径、类型、锚点、实体结构" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="710" y="580" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="schema" value="JSON/Schema/域语义失败?&#xa;附上次错误，按 QWEN_SCHEMA_RETRIES 重试" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="570" width="270" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="domainfail" value="重试耗尽&#xa;template_domain_failed&#xa;仅保存失败域" style="whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="580" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="merge" value="合并 6 域事实与实体&#xa;禁止跨域重复路径" style="whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1720" y="590" width="220" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="catalog" value="34 条 template_rules&#xa;规则目录保持全部可见" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="40" y="780" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="qstate" value="questionPatterns&#xa;区分问题缺席 / 已问空答" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="340" y="780" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="condition" value="1. appliesWhen&#xa;false=规则不适用&#xa;unknown=待人工判断" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="650" y="770" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="required" value="2. requiredFields&#xa;缺失/不清为阻断项&#xa;明确否定也是有效回答" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="960" y="770" width="230" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="advisory" value="3. advisoryFields&#xa;缺失只提示，不阻断通过" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="780" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="repeat" value="4. repeatEntity&#xa;逐笔转账/取现/线下交付字段" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1590" y="780" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="consistency" value="5. consistencyChecks&#xa;金额合计、时间顺序、数量匹配" style="whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1920" y="780" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="status" value="六类状态&#xa;已通过 / 未询问 / 回答不清&#xa;事实矛盾 / 规则不适用 / 待人工判断" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="450" y="990" width="280" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="locate" value="展开完整 QA 证据&#xa;按段落 ID 精确高亮" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="850" y="1010" width="230" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="store" value="任务、抽取载荷、34 条结果落库" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="1010" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="frontend" value="前端六类汇总与逐条审查&#xa;人工处理 / 补问 / 归档" style="whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1540" y="1000" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="upload" target="filecheck">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="filecheck" target="parse">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="发现图片" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="parse" target="vision">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="原生文本/表格" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="parse" target="ordered">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="vision" target="ordered">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="ordered" target="qa">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="ordered" target="nonqa">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="ordered" target="victim">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="qa" target="evidence">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="nonqa" target="evidence">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="evidence" target="orchestrator">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="commonprompt" target="builder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="domainprompt" target="builder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" value="生成字段说明和 Schema" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="contracts" target="builder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" value="逐域" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="orchestrator" target="builder">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e15" value="6 个 strict Schema 请求" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="builder" target="qwen">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="qwen" target="transient">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e17" value="是且未耗尽" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="transient" target="qwen">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e18" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="transient" target="normalize">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="normalize" target="validate">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e20" value="失败" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="validate" target="schema">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e21" value="未耗尽 + 错误反馈" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="schema" target="qwen">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e22" value="耗尽" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="schema" target="domainfail">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" value="通过" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="validate" target="merge">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="merge" target="condition">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e25" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="catalog" target="condition">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e26" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="qstate" target="required">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="qa" target="qstate">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e28" value="适用" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="condition" target="required">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="required" target="advisory">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="advisory" target="repeat">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="repeat" target="consistency">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="consistency" target="status">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e33" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="status" target="locate">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="locate" target="store">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="victim" target="store">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e36" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="store" target="frontend">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e37" value="失败状态与域错误" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="domainfail" target="store">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

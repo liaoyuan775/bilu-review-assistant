@@ -429,7 +429,7 @@ def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
     assert updated.status == TaskStatus.COMPLETED
     assert updated.failedDomains == []
     assert run.await_args.kwargs["domains"] == DOMAIN_ORDER
-    assert len(updated.extractionPayload["facts"]) == 92
+    assert len(updated.extractionPayload["facts"]) == 80
     assert len(updated.results) == 34
     assert store.STORE.get_audit_snapshot(task.id)["events"][-1]["event_type"] == "domain_retried"
 

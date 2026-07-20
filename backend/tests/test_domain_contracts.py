@@ -7,9 +7,10 @@ from app.data.domain_contracts import (
     ENTITY_COUNT_PATHS,
     catalog_paths_from_rules,
 )
+from app.data.rules import TEMPLATE_RULES
 
 
-def test_all_seven_domain_contracts_load():
+def test_six_domain_contracts_load():
     assert tuple(DOMAIN_CONTRACTS) == DOMAIN_ORDER
     assert set(DOMAIN_CONTRACTS) == {
         "header_procedure",
@@ -18,8 +19,12 @@ def test_all_seven_domain_contracts_load():
         "risk_and_evidence",
         "online_money",
         "offline_delivery",
-        "special_scenarios",
     }
+
+
+def test_model_fact_contract_is_reduced_without_reducing_rule_count():
+    assert len(TEMPLATE_RULES) == 34
+    assert sum(len(paths) for paths in DOMAIN_FACT_PATHS.values()) <= 80
 
 
 def test_contracts_cover_catalog_paths_exactly_once():

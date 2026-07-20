@@ -60,6 +60,7 @@ class OpenXmlImage:
     content: bytes
     media_type: str
     part_name: str
+    block_index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -174,14 +175,25 @@ def _node_text(
     return render(node)
 
 
-def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[OpenXmlBlock]:
-    """从 word/document.xml 提取正文段落、表格和内容控件。"""
+def _body_content(
+    document_xml: bytes,
+    relationships: dict[str, tuple[str, str]],
+    warnings: list[DocumentWarning],
+) -> tuple[list[OpenXmlBlock], list[tuple[str, int]]]:
+    """提取正文块，并记录图片相对正文块的插入位置。"""
     root = etree.fromstring(document_xml)
     body = root.find("w:body", NAMESPACES)
     if body is None:
-        return []
+        return [], []
 
     blocks: list[OpenXmlBlock] = []
+    image_placements: list[tuple[str, int]] = []
+
+    def append_images(node: etree._Element) -> None:
+        for image_node in node.findall(".//*[@r:embed]", {**NAMESPACES, "r": OFFICE_RELATIONSHIP_NAMESPACE}):
+            relationship = relationships.get(image_node.get(R + "embed") or "")
+            if relationship is not None and relationship[0].endswith("/image"):
+                image_placements.append((relationship[1], len(blocks)))
 
     def append_child(child: etree._Element) -> None:
         """递归处理正文子元素，支持 p（段落）、tbl（表格）、sdt（内容控件）。"""
@@ -189,6 +201,7 @@ def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[O
             text = _node_text(child, warnings).strip()
             if text:
                 blocks.append(OpenXmlBlock(text=text, source_type=SourceType.NATIVE_TEXT))
+            append_images(child)
         elif child.tag == W + "tbl":
             for row in child.findall("./w:tr", NAMESPACES):
                 cells = [
@@ -198,6 +211,7 @@ def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[O
                 text = " | ".join(cell for cell in cells if cell)
                 if text:
                     blocks.append(OpenXmlBlock(text=text, source_type=SourceType.TABLE))
+                append_images(row)
         elif child.tag == W + "sdt":
             content = child.find("./w:sdtContent", NAMESPACES)
             if content is not None:
@@ -206,6 +220,12 @@ def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[O
 
     for child in body:
         append_child(child)
+    return blocks, image_placements
+
+
+def _body_blocks(document_xml: bytes, warnings: list[DocumentWarning]) -> list[OpenXmlBlock]:
+    """从 word/document.xml 提取正文段落、表格和内容控件。"""
+    blocks, _ = _body_content(document_xml, {}, warnings)
     return blocks
 
 
@@ -351,6 +371,7 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
         _validate_package(archive)
         document_xml = archive.read("word/document.xml")
         story_parts, image_parts = _referenced_parts(archive, document_xml)
+        document_relationships = _relationships(archive, "word/document.xml")
 
         header_blocks = [
             block
@@ -364,8 +385,16 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
             if source_type == SourceType.FOOTER
             for block in _optional_story(archive, part_name, SourceType.FOOTER, warnings)
         ]
+        body_blocks, body_image_placements = _body_content(
+            document_xml,
+            document_relationships,
+            warnings,
+        )
         # 组合顺序：页眉优先，正文居中，页脚最后
-        blocks = [*header_blocks, *_body_blocks(document_xml, warnings), *footer_blocks]
+        blocks = [*header_blocks, *body_blocks, *footer_blocks]
+        first_body_image_positions: dict[str, int] = {}
+        for part_name, block_index in body_image_placements:
+            first_body_image_positions.setdefault(part_name, len(header_blocks) + block_index)
 
         if len(image_parts) > MAX_IMAGES:
             raise AppError("docx_expansion_limit", "DOCX 引用图片数量过多，已拒绝解析。", 422)
@@ -388,6 +417,11 @@ def read_docx_parts(content: bytes) -> OpenXmlDocument:
                     partName=part_name,
                 ))
                 continue
-            images.append(OpenXmlImage(content=image, media_type=media_type, part_name=part_name))
+            images.append(OpenXmlImage(
+                content=image,
+                media_type=media_type,
+                part_name=part_name,
+                block_index=first_body_image_positions.get(part_name),
+            ))
 
     return OpenXmlDocument(blocks=blocks, images=images, warnings=warnings)

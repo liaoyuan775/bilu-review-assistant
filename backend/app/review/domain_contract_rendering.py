@@ -10,6 +10,7 @@ from app.data.domain_contracts import DomainContract, FactContract, ValueSchema
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROMPT_TEMPLATE = (ROOT / "prompt-templates" / "domain-extraction.txt").read_text(encoding="utf-8")
+DOMAIN_PROMPT_ROOT = ROOT / "prompt-templates" / "domains"
 
 
 def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
@@ -136,6 +137,9 @@ def render_domain_prompt(
         "{{DOMAIN_NAME}}": contract.domain,
         "{{DOMAIN_TITLE}}": contract.title,
         "{{DOMAIN_BOUNDARY}}": boundary,
+        "{{DOMAIN_INSTRUCTIONS}}": (
+            DOMAIN_PROMPT_ROOT / f"{contract.domain.replace('_', '-')}.txt"
+        ).read_text(encoding="utf-8").strip(),
         "{{REQUESTED_CONTRACT}}": "\n".join(requested_lines),
         "{{CORRECTION}}": correction or "无，这是首次请求。",
         "{{STRUCTURAL_TEXT}}": structural,
@@ -177,7 +181,7 @@ def _fact_schema(fact: FactContract, allowed_anchor_ids: tuple[str, ...] | None)
             "clarity": {"type": "string", "enum": ["clear", "unclear", "unknown", "missing"]},
             "evidenceAnchorIds": {
                 "type": "array",
-                "maxItems": 3,
+                "maxItems": 5,
                 "items": anchor_items,
             },
         },

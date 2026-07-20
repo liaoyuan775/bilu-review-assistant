@@ -14,7 +14,6 @@ DOMAIN_ORDER = (
     "risk_and_evidence",
     "online_money",
     "offline_delivery",
-    "special_scenarios",
 )
 
 ValueType = Literal["string", "number", "integer", "boolean", "array", "null"]
@@ -80,6 +79,7 @@ def catalog_paths_from_rules() -> set[str]:
     paths: set[str] = set()
     for rule in TEMPLATE_RULES:
         paths.update(rule.requiredFields)
+        paths.update(rule.advisoryFields)
         if rule.appliesWhen:
             paths.add(rule.appliesWhen.path)
         if rule.repeatEntity and rule.repeatEntity.countPath:
@@ -96,7 +96,6 @@ def catalog_paths_from_rules() -> set[str]:
             ):
                 if value:
                     paths.add(value)
-    paths.update({"special.gambling_related", "special.ecommerce_logistics_impersonation"})
     return paths
 
 
@@ -124,7 +123,7 @@ def _validate_contract_relationships(contracts: dict[str, DomainContract]) -> No
         contract, entity = entities[repeated.entityType]
         if entity.countPath != repeated.countPath:
             raise ValueError(f"entity countPath mismatch: {repeated.entityType}")
-        if tuple(entity.fields) != tuple(repeated.requiredFields):
+        if set(entity.fields) != set([*repeated.requiredFields, *repeated.advisoryFields]):
             raise ValueError(f"entity fields mismatch: {repeated.entityType}")
         if entity.countPath not in contract.facts:
             raise ValueError(f"entity countPath must belong to its domain: {repeated.entityType}")

@@ -61,6 +61,12 @@ def _is_clear(fact: ExtractedFact | None) -> bool:
     return _has_value(fact) and fact.clarity == "clear"
 
 
+def _matches_required_value(value: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return _boolean_value(value) is expected
+    return value == expected
+
+
 def _boolean_value(value: Any) -> bool | None:
     """将各种形式的布尔值标准化为 Python bool 或 None。
 
@@ -127,7 +133,7 @@ def _condition_result(extraction: CaseExtraction, rule: TemplateRule) -> tuple[b
 
 def _decimal(fact: ExtractedFact | None) -> Decimal | None:
     """将事实的值转为 Decimal 类型（用于数值比较）。"""
-    if not _is_clear(fact):
+    if not _has_value(fact) or fact.clarity not in {"clear", "unclear"}:
         return None
     try:
         return Decimal(str(fact.value))
@@ -214,6 +220,7 @@ def _reason(status: RuleStatus, fields: list[str]) -> str:
 def evaluate_template_rules(
     extraction: CaseExtraction,
     rules: list[TemplateRule],
+    question_states: dict[str, str] | None = None,
 ) -> list[TemplateReviewIssue]:
     """评估所有模板规则，生成审查问题列表。
 
@@ -231,6 +238,7 @@ def evaluate_template_rules(
         每条规则的评估结果（TemplateReviewIssue 列表）。
     """
     issues: list[TemplateReviewIssue] = []
+    question_states = question_states or {}
     for rule in rules:
         applies, condition_anchors = _condition_result(extraction, rule)
         if applies is False:
@@ -263,8 +271,12 @@ def evaluate_template_rules(
         missing: list[str] = []
         unclear: list[str] = []
         clear_count = 0
-        anchor_ids = list(condition_anchors)
-        for path in rule.requiredFields:
+        anchor_ids: list[str] = []
+        answer_presence_satisfies = (
+            rule.answerPresenceSatisfies
+            and question_states.get(rule.ruleId) == "answered"
+        )
+        for path in ([] if answer_presence_satisfies else rule.requiredFields):
             fact = extraction.facts.get(path)
             for anchor in _anchors(fact):
                 if anchor not in anchor_ids:
@@ -273,12 +285,22 @@ def evaluate_template_rules(
                 missing.append(path)
             elif fact.clarity != "clear":
                 unclear.append(path)
-            elif not _has_value(fact):
+            elif path in rule.requiredValues and not _matches_required_value(
+                fact.value,
+                rule.requiredValues[path],
+            ):
+                unclear.append(path)
+            elif not _has_value(fact) and path not in rule.explicitAnswerFields:
                 missing.append(path)
             else:
                 clear_count += 1
 
         inconsistent: list[str] = []
+        advisories = [
+            path
+            for path in rule.advisoryFields
+            if not _is_clear(extraction.facts.get(path))
+        ]
         if rule.repeatEntity is not None:
             repeated = rule.repeatEntity
             entities = extraction.entities.get(repeated.entityType, [])
@@ -294,6 +316,9 @@ def evaluate_template_rules(
                             anchor_ids.append(anchor)
                     if not _is_clear(fact):
                         unclear.append(f"{entity.id}.{field_name}")
+                for field_name in repeated.advisoryFields:
+                    if not _is_clear(entity.fields.get(field_name)):
+                        advisories.append(f"{entity.id}.{field_name}")
 
         for check in rule.consistencyChecks:
             field, check_anchors = _check_consistency(extraction, check)
@@ -307,7 +332,12 @@ def evaluate_template_rules(
             status = RuleStatus.INCONSISTENT
             fields = [*missing, *unclear, *inconsistent]
         elif missing:
-            status = RuleStatus.MISSING if clear_count == 0 and not unclear else RuleStatus.INCOMPLETE
+            asked = question_states.get(rule.ruleId)
+            status = (
+                RuleStatus.INCOMPLETE
+                if asked in {"blank", "unclear"}
+                else RuleStatus.MISSING if clear_count == 0 and not unclear else RuleStatus.INCOMPLETE
+            )
             fields = [*missing, *unclear]
         elif unclear:
             status = RuleStatus.INCOMPLETE
@@ -321,6 +351,7 @@ def evaluate_template_rules(
             group=rule.group,
             status=status,
             missingFields=list(dict.fromkeys(fields)),
+            advisories=list(dict.fromkeys(advisories)),
             reason=_reason(status, list(dict.fromkeys(fields))),
             anchorIds=anchor_ids,
             suggestedQuestion="" if status == RuleStatus.COVERED else rule.suggestedQuestion,

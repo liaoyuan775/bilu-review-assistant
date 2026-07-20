@@ -25,9 +25,13 @@ QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "").rstrip("/")
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "")
 try:
-    QWEN_DOMAIN_CONCURRENCY = max(1, min(7, int(os.getenv("QWEN_DOMAIN_CONCURRENCY", "7"))))
+    QWEN_DOMAIN_CONCURRENCY = max(1, min(6, int(os.getenv("QWEN_DOMAIN_CONCURRENCY", "6"))))
 except ValueError:
-    QWEN_DOMAIN_CONCURRENCY = 7
+    QWEN_DOMAIN_CONCURRENCY = 6
+try:
+    QWEN_TRANSIENT_RETRIES = max(0, min(1, int(os.getenv("QWEN_TRANSIENT_RETRIES", "1"))))
+except ValueError:
+    QWEN_TRANSIENT_RETRIES = 1
 try:
     QWEN_SCHEMA_RETRIES = max(0, min(2, int(os.getenv("QWEN_SCHEMA_RETRIES", "1"))))
 except ValueError:

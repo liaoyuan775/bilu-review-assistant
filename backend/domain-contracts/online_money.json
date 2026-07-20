@@ -27,17 +27,6 @@
         "recipient_account": {"description": "收款账户", "valueSchema": {"type": ["string", "null"]}},
         "transaction_id": {"description": "交易流水号", "valueSchema": {"type": ["string", "null"]}}
       }
-    },
-    "rebates": {
-      "description": "每笔线上返款记录",
-      "applicabilityPath": "online_money.used",
-      "fields": {
-        "time": {"description": "返款时间", "valueSchema": {"type": ["string", "null"]}},
-        "amount": {"description": "返款金额", "valueSchema": {"type": ["number", "null"], "minimum": 0}},
-        "method": {"description": "返款方式", "valueSchema": {"type": ["string", "null"]}},
-        "recipient_account": {"description": "返款接收账户", "valueSchema": {"type": ["string", "null"]}},
-        "transaction_id": {"description": "返款流水号", "valueSchema": {"type": ["string", "null"]}}
-      }
     }
   }
 }

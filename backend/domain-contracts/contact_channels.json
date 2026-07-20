@@ -20,8 +20,7 @@
         "time": {"description": "切换时间", "valueSchema": {"type": ["string", "null"]}},
         "channel": {"description": "切换后的渠道", "valueSchema": {"type": ["string", "null"]}},
         "account": {"description": "联系人或账号", "valueSchema": {"type": ["string", "null"]}},
-        "important_information": {"description": "重要信息", "valueSchema": {"type": ["string", "null"]}},
-        "details": {"description": "联系详情", "valueSchema": {"type": ["string", "null"]}}
+        "important_information": {"description": "重要信息和联系详情", "valueSchema": {"type": ["string", "null"]}}
       }
     }
   }
