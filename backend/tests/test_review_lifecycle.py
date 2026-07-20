@@ -113,7 +113,7 @@ def _complete_extraction() -> CaseExtraction:
                 "status": RuleStatus.MISSING,
                 "manualDecision": ManualDecision(status=ManualStatus.PENDING),
             })),
-            "archive_pending_high_risk",
+            "archive_pending_issues",
         ),
     ],
 )
@@ -137,6 +137,77 @@ def test_acknowledged_warning_and_resolved_high_risk_issue_can_archive():
     })
 
     assert_archive_ready(deepcopy(task))
+
+
+@pytest.mark.parametrize("severity", ["low", "medium", "high"])
+@pytest.mark.parametrize(
+    "manual_status",
+    [ManualStatus.PENDING, ManualStatus.SUPPLEMENTED, ManualStatus.CONFIRMED],
+)
+def test_every_unresolved_actionable_issue_blocks_archive(severity, manual_status):
+    task = _task()
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.INCOMPLETE,
+        "severity": severity,
+        "manualDecision": ManualDecision(status=manual_status, reason="尚未闭环。"),
+    })
+
+    with pytest.raises(AppError) as error:
+        assert_archive_ready(task)
+
+    assert error.value.code == "archive_pending_issues"
+
+
+@pytest.mark.parametrize(
+    "manual_status",
+    [ManualStatus.RESOLVED, ManualStatus.NOT_APPLICABLE, ManualStatus.IGNORED],
+)
+def test_terminal_decisions_with_reason_allow_archive(manual_status):
+    task = _task()
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.MISSING,
+        "severity": "low",
+        "manualDecision": ManualDecision(status=manual_status, reason="已人工核对并记录依据。"),
+    })
+
+    assert_archive_ready(task)
+
+
+def test_bulk_demo_pass_resolves_actionable_items_acknowledges_warnings_and_invalidates_artifacts(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.demoId = "case-01-baseline"
+    task.document.warnings = [DocumentWarning(code="media_corrupt", message="测试告警")]
+    task.results[0] = task.results[0].model_copy(update={
+        "status": RuleStatus.MISSING,
+        "manualDecision": ManualDecision(status=ManualStatus.PENDING),
+    })
+    task.artifacts.insert(0, ArtifactSummary(
+        id="original", type="original", filename="source.docx", sha256="b" * 64, sizeBytes=10,
+    ))
+    store.save_task(task)
+    real_save = review.save_task_with_events
+    save_calls = 0
+
+    def tracked_save(updated, events):
+        nonlocal save_calls
+        save_calls += 1
+        return real_save(updated, events)
+
+    monkeypatch.setattr(review, "save_task_with_events", tracked_save)
+
+    updated = review.pass_demo_review(task.id)
+
+    assert save_calls == 1
+    assert updated.results[0].manualDecision == ManualDecision(
+        status=ManualStatus.RESOLVED,
+        reason="脱敏演示：一键测试通过",
+    )
+    assert updated.acknowledgedWarnings == ["media_corrupt"]
+    assert [artifact.type for artifact in updated.artifacts] == ["original"]
+    events = store.STORE.get_audit_snapshot(task.id)["events"]
+    assert any(event["event_type"] == "resolved" and event["actor_id"] == "demo-operator" for event in events)
+    assert any(event["event_type"] == "warnings_acknowledged" for event in events)
 
 
 def test_issue_action_appends_event_and_archived_task_is_read_only(tmp_path, monkeypatch):

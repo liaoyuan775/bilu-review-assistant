@@ -43,6 +43,7 @@ from app.api.routes import (
     archive_review_v2,
     create_demo_review,
     create_upload_review,
+    demo_pass_review,
     download_review_artifact,
     generate_artifacts,
     health,
@@ -95,6 +96,7 @@ app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/actions", response_model=De
 app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/follow-up-answer", response_model=ReviewTask)(save_follow_up_answer)
 app.post("/api/v1/reviews/{task_id}/domains/{domain}/retry", response_model=ReviewTask)(retry_review_domain)
 app.post("/api/v1/reviews/{task_id}/warnings/acknowledge", response_model=ReviewTask)(acknowledge_review_warnings)
+app.post("/api/v1/reviews/{task_id}/demo-pass", response_model=ReviewTask)(demo_pass_review)
 
 # ── 产物生成与下载 ──────────────────────────────────────────
 app.post("/api/v1/reviews/{task_id}/artifacts/generate", response_model=ReviewTask)(generate_artifacts)

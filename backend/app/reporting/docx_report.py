@@ -26,15 +26,16 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from app.core.models import ReviewTask, RuleStatus
+from app.reporting.presentation import fact_label, localize_fact_paths, sort_review_results
 from app.reporting.report_labels import event_type_label, format_datetime, manual_status_label, mode_label, review_status_label, severity_label
 
 
 _STATUS_LABELS = {
-    RuleStatus.COVERED: "已覆盖",
+    RuleStatus.COVERED: "已通过",
     RuleStatus.MISSING: "未询问",
     RuleStatus.INCOMPLETE: "回答不清",
     RuleStatus.INCONSISTENT: "事实矛盾",
-    RuleStatus.NOT_APPLICABLE: "不适用",
+    RuleStatus.NOT_APPLICABLE: "规则不适用",
     RuleStatus.NEEDS_MANUAL_REVIEW: "待人工判断",
 }
 
@@ -143,10 +144,10 @@ def build_follow_up_docx(task: ReviewTask, manual_events: list[dict]) -> bytes:
         RuleStatus.INCONSISTENT,
         RuleStatus.NEEDS_MANUAL_REVIEW,
     }
-    selected = [
+    selected = sort_review_results([
         item for item in task.results
         if item.status in actionable or item.manualDecision.status.value != "pending"
-    ]
+    ])
     if not selected:
         document.add_paragraph("当前没有需要补问或记录处置依据的事项。")
     for index, item in enumerate(selected, start=1):
@@ -156,7 +157,9 @@ def build_follow_up_docx(task: ReviewTask, manual_events: list[dict]) -> bytes:
         paragraph.add_run(_STATUS_LABELS[item.status])
         paragraph.add_run("    风险等级：").bold = True
         paragraph.add_run(severity_label(item.severity))
-        document.add_paragraph(f"审查说明：{item.reason}")
+        document.add_paragraph(f"审查说明：{localize_fact_paths(item.reason)}")
+        if item.missingFacts:
+            document.add_paragraph(f"缺失或不清字段：{'、'.join(fact_label(path) for path in item.missingFacts)}")
         if item.evidence:
             document.add_paragraph(f"证据原文：{item.evidence}")
         if item.suggestedQuestion:

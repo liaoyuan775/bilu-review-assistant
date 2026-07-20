@@ -1,6 +1,9 @@
 import asyncio
+import inspect
+import json
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from app.core.errors import AppError
@@ -34,10 +37,113 @@ def test_structured_fact_requests_disable_sampling(monkeypatch):
         messages=[{"role": "user", "content": "脱敏测试"}],
         schema={"type": "object", "properties": {}, "additionalProperties": False},
         schema_name="deterministic_test",
-        tool_description="提交脱敏测试结果。",
     ))
 
-    assert request.await_args.args[1]["temperature"] == 0
+    payload = request.await_args.args[1]
+    assert payload["temperature"] == 0
+    assert payload["enable_thinking"] is False
+    assert payload["response_format"]["type"] == "json_schema"
+    assert payload["response_format"]["json_schema"]["strict"] is True
+    assert not {"tools", "tool_choice"} & payload.keys()
+    assert "json" in json.dumps(payload["messages"], ensure_ascii=False).lower()
+    assert any("json" in message["content"].lower() for message in payload["messages"])
+    system_content = payload["messages"][0]["content"]
+    assert json.dumps(payload["response_format"]["json_schema"]["schema"], ensure_ascii=False, separators=(",", ":")) in system_content
+
+
+def test_template_flow_does_not_expose_legacy_three_present_four_flows_model_review():
+    source = inspect.getsource(qwen)
+
+    assert "three_present_four_flows_review" not in source
+    assert "review_with_qwen" not in source
+    assert "structured_review_schema" not in source
+
+
+def test_structured_payload_fails_without_falling_back_when_schema_is_unsupported(monkeypatch):
+    real_async_client = httpx.AsyncClient
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        return httpx.Response(400, json={"error": {"message": "response_format json_schema is not supported"}})
+
+    def client_factory(*_args, **kwargs):
+        return real_async_client(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
+    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
+    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
+    monkeypatch.setattr(qwen.httpx, "AsyncClient", client_factory)
+
+    async def run_request():
+        async with qwen.httpx.AsyncClient(timeout=30) as client:
+            return await qwen.request_structured_payload(
+                client,
+                messages=[{"role": "user", "content": "Return JSON."}],
+                schema={
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"],
+                    "additionalProperties": False,
+                },
+                schema_name="plain_json_probe",
+            )
+
+    with pytest.raises(AppError) as error:
+        asyncio.run(run_request())
+
+    assert error.value.code == "structured_output_unsupported"
+    assert len(requests) == 1
+    assert requests[0]["response_format"]["type"] == "json_schema"
+    assert requests[0]["enable_thinking"] is False
+    assert not {"tools", "tool_choice"} & requests[0].keys()
+
+
+def test_structured_payload_does_not_fallback_for_generic_bad_schema_request(monkeypatch):
+    requests: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(400, json={
+            "error": {"message": "invalid response_format json_schema: required field mismatch"},
+        })
+
+    monkeypatch.setattr(qwen, "QWEN_BASE_URL", "http://qwen.test/v1")
+    monkeypatch.setattr(qwen, "QWEN_API_KEY", "test-key")
+    monkeypatch.setattr(qwen, "QWEN_MODEL", "test-model")
+
+    async def run_request():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await qwen.request_structured_payload(
+                client,
+                messages=[{"role": "user", "content": "Return JSON."}],
+                schema={"type": "object", "properties": {}, "additionalProperties": False},
+                schema_name="invalid_schema_probe",
+            )
+
+    with pytest.raises(AppError) as error:
+        asyncio.run(run_request())
+
+    assert error.value.code == "model_request_failed"
+    assert len(requests) == 1
+
+
+def test_domain_response_that_violates_schema_is_not_retried(monkeypatch):
+    document = _document()
+    request = AsyncMock(return_value={"unexpected": {"value": "ignored schema"}})
+    monkeypatch.setattr(extraction_mod, "request_structured_payload", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    with pytest.raises(extraction_mod.TemplateDomainFailure) as error:
+        asyncio.run(extraction_mod.extract_template_facts(
+            document,
+            {},
+            domains=("header_procedure",),
+        ))
+
+    assert request.await_count == 1
+    assert error.value.domain_errors["header_procedure"] == "structured_output_not_enforced"
 
 
 def _document(question: str = "是否收到风险提示？", answer: str = "收到银行短信提示。") -> ParsedDocument:
@@ -71,7 +177,7 @@ def _missing_domain(domain: str) -> CaseExtraction:
 
 
 def test_domain_failure_keeps_successful_parallel_extractions(monkeypatch):
-    async def request(_client, _document, domain, *_args):
+    async def request(_client, _document, domain, _correction=None, focus_paths=None):
         if domain == "contact_channels":
             raise AppError(
                 "model_unreachable",
@@ -79,7 +185,10 @@ def test_domain_failure_keeps_successful_parallel_extractions(monkeypatch):
                 502,
                 correction_hint="测试连接错误明细",
             )
-        return _missing_domain(domain)
+        result = _missing_domain(domain)
+        if focus_paths is None:
+            return result
+        return CaseExtraction(facts={path: result.facts[path] for path in focus_paths})
 
     monkeypatch.setattr(extraction_mod, "_request_domain", request)
 
@@ -126,8 +235,52 @@ def test_domain_schema_is_strict_and_requires_all_declared_fact_paths():
     facts = schema["properties"]["facts"]
     assert facts["additionalProperties"] is False
     assert facts["required"] == list(extraction_mod.DOMAIN_FACT_PATHS["online_money"])
-    assert facts["properties"]["online_money.total"]["additionalProperties"] is False
-    assert "sourceConfidence" not in facts["properties"]["online_money.total"]["properties"]
+    assert all(value == {"$ref": "#/$defs/fact"} for value in facts["properties"].values())
+    assert schema["$defs"]["fact"]["additionalProperties"] is False
+    assert "sourceConfidence" not in schema["$defs"]["fact"]["properties"]
+
+
+def test_domain_schema_constrains_evidence_to_document_anchor_aliases():
+    schema = extraction_mod.template_extraction_schema(
+        "header_procedure",
+        allowed_anchor_ids=("A001", "A002"),
+    )
+
+    assert next(iter(schema["properties"]["facts"]["properties"].values())) == {"$ref": "#/$defs/fact"}
+    evidence = schema["$defs"]["fact"]["properties"]["evidenceAnchorIds"]
+    assert evidence["maxItems"] == 3
+    assert evidence["items"] == {
+        "$ref": "#/$defs/anchorId",
+    }
+    assert schema["$defs"]["anchorId"] == {"type": "string", "enum": ["A001", "A002"]}
+
+
+def test_unknown_fact_requires_no_evidence_anchor():
+    document = _document()
+    extraction = _missing_domain("case_timeline")
+    extraction.facts["case.report_reason"] = ExtractedFact(
+        clarity="unknown",
+        evidenceAnchorIds=[],
+    )
+
+    validated = extraction_mod.validate_domain_extraction(document, "case_timeline", extraction)
+
+    assert validated.facts["case.report_reason"].clarity == "unknown"
+
+
+def test_unknown_fact_with_evidence_returns_an_actionable_correction_hint():
+    document = _document()
+    extraction = _missing_domain("case_timeline")
+    extraction.facts["case.report_reason"] = ExtractedFact(
+        clarity="unknown",
+        evidenceAnchorIds=["a1"],
+    )
+
+    with pytest.raises(AppError) as error:
+        extraction_mod.validate_domain_extraction(document, "case_timeline", extraction)
+
+    assert error.value.field == "case.report_reason"
+    assert "evidenceAnchorIds=[]" in (error.value.correction_hint or "")
 
 
 def test_domain_schema_avoids_provider_unsupported_unique_items_keyword():
@@ -262,17 +415,23 @@ def test_domain_request_maps_anchor_aliases_back_to_paragraph_ids(monkeypatch):
 
 def test_invalid_anchor_is_retried_once_and_valid_result_is_accepted(monkeypatch):
     document = _document()
-    invalid = _missing_domain("case_timeline")
-    invalid.facts["case.report_reason"] = ExtractedFact(
-        value="测试报案原因",
-        clarity="clear",
-        evidenceAnchorIds=["missing-anchor"],
+    invalid = CaseExtraction(
+        facts={
+            "case.report_reason": ExtractedFact(
+                value="测试报案原因",
+                clarity="clear",
+                evidenceAnchorIds=["missing-anchor"],
+            ),
+        },
     )
-    valid = _missing_domain("case_timeline")
-    valid.facts["case.report_reason"] = ExtractedFact(
-        value="测试报案原因",
-        clarity="clear",
-        evidenceAnchorIds=["a1"],
+    valid = CaseExtraction(
+        facts={
+            "case.report_reason": ExtractedFact(
+                value="测试报案原因",
+                clarity="clear",
+                evidenceAnchorIds=["a1"],
+            ),
+        },
     )
     request = AsyncMock(side_effect=[invalid, valid])
     monkeypatch.setattr(extraction_mod, "_request_domain", request)
@@ -282,6 +441,7 @@ def test_invalid_anchor_is_retried_once_and_valid_result_is_accepted(monkeypatch
         document,
         {},
         domains=("case_timeline",),
+        focus_paths=("case.report_reason",),
     ))
 
     assert request.await_count == 2
@@ -411,8 +571,10 @@ def test_multiple_domains_merge_without_overwriting_facts(monkeypatch):
     second.facts["contact.initial_channel"] = ExtractedFact(value="测试短信", clarity="clear", evidenceAnchorIds=["a1"])
 
     async def request(_client, _document, domain, _correction=None, focus_paths=None):
-        assert focus_paths is None
-        return first if domain == "case_timeline" else second
+        source = first if domain == "case_timeline" else second
+        if focus_paths is None:
+            return source
+        return CaseExtraction(facts={path: source.facts[path] for path in focus_paths})
 
     monkeypatch.setattr(extraction_mod, "_request_domain", request)
     monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
@@ -447,7 +609,32 @@ def test_focused_extraction_accepts_the_selected_fact_subset(monkeypatch):
     assert request.await_args.args[4] == ("contact.chat_used",)
 
 
-def test_one_failed_domain_prevents_a_complete_extraction(monkeypatch):
+def test_large_entity_free_domain_is_split_into_strict_fact_batches(monkeypatch):
+    document = _document()
+    requested_batches: list[tuple[str, ...]] = []
+
+    async def request(_client, _document, domain, _correction=None, focus_paths=None):
+        assert domain == "case_timeline"
+        assert focus_paths is not None
+        requested_batches.append(focus_paths)
+        return CaseExtraction(facts={path: ExtractedFact(clarity="missing") for path in focus_paths})
+
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    extraction = asyncio.run(extraction_mod.extract_template_facts(
+        document,
+        {},
+        domains=("case_timeline",),
+    ))
+
+    assert len(requested_batches) > 1
+    assert all(1 <= len(batch) <= extraction_mod.MAX_FACTS_PER_SCHEMA_REQUEST for batch in requested_batches)
+    assert set(path for batch in requested_batches for path in batch) == set(extraction_mod.DOMAIN_FACT_PATHS["case_timeline"])
+    assert set(extraction.facts) == set(extraction_mod.DOMAIN_FACT_PATHS["case_timeline"])
+
+
+def test_one_failed_domain_gets_one_schema_correction_retry(monkeypatch):
     document = _document()
     request = AsyncMock(side_effect=AppError(
         "invalid_model_response",
@@ -465,8 +652,48 @@ def test_one_failed_domain_prevents_a_complete_extraction(monkeypatch):
             domains=("case_timeline",),
         ))
 
-    assert request.await_count == 3
+    assert request.await_count == 2
+    assert request.await_args_list[0].args[3] is None
+    assert request.await_args_list[1].args[3] is request.side_effect
     assert error.value.code == "template_domain_failed"
+
+
+def test_non_retryable_domain_error_stops_after_one_attempt(monkeypatch):
+    document = _document()
+    request = AsyncMock(side_effect=AppError("model_request_failed", "Qwen 返回 HTTP 400。", 502))
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    with pytest.raises(AppError):
+        asyncio.run(extraction_mod.extract_template_facts(
+            document,
+            {},
+            domains=("case_timeline",),
+        ))
+
+    assert request.await_count == 1
+
+
+def test_network_retry_keeps_schema_without_content_correction(monkeypatch):
+    document = _document()
+    request = AsyncMock(side_effect=AppError(
+        "model_unreachable",
+        "模型服务不可达。",
+        503,
+        retry_strategy="schema",
+    ))
+    monkeypatch.setattr(extraction_mod, "_request_domain", request)
+    monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
+
+    with pytest.raises(AppError):
+        asyncio.run(extraction_mod.extract_template_facts(
+            document,
+            {},
+            domains=("case_timeline",),
+        ))
+
+    assert request.await_count == 2
+    assert all(call.args[3] is None for call in request.await_args_list)
 
 
 def test_review_uses_deterministic_results_without_semantic_recheck_when_clear(monkeypatch):

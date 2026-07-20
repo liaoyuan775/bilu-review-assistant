@@ -20,7 +20,7 @@ from app.parsing.parser import parse_document
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-DEMO_DOCUMENT_ROOT = REPOSITORY_ROOT / "output" / "doc"
+DEMO_DOCUMENT_ROOT = REPOSITORY_ROOT / "test-fixtures"
 
 
 @dataclass(frozen=True)
@@ -28,13 +28,14 @@ class DemoCase:
     """一个演示样例的定义。
 
     Attributes:
-        id:             唯一标识（如 "case-01-basic-complete"）
+        id:             唯一标识（如 "case-01-baseline"）
         filename:       DOCX 文件名
         intent:         用例意图描述
         executionMode:  "mock"=模拟结果 / "qwen"=完整模型审查
     """
     id: str
     filename: str
+    display_name: str
     intent: str
     executionMode: Literal["mock", "qwen"]
 
@@ -45,13 +46,12 @@ class DemoCase:
 
 
 DEMO_CASES = [
-    DemoCase("case-01-basic-complete", "01-基本完整-电诈询问笔录.docx", "基本完整 · 快速演示", "mock"),
-    DemoCase("case-02-explicit-omissions", "02-明确漏问-电诈询问笔录.docx", "明确漏问", "qwen"),
-    DemoCase("case-03-app-rebate", "03-复杂场景-APP返利询问笔录.docx", "APP 返利复杂场景", "qwen"),
-    DemoCase("case-04-fake-prosecutor-atm", "04-冒充公检法-老年人ATM询问笔录.docx", "冒充公检法 · ATM", "qwen"),
-    DemoCase("case-05-investment-crypto", "05-投资交友-数字货币询问笔录.docx", "投资交友 · 数字货币", "qwen"),
-    DemoCase("case-06-fake-service-remote-control", "06-冒充客服-远程控制询问笔录.docx", "冒充客服 · 远程控制", "qwen"),
-    DemoCase("case-07-cash-gold-delivery", "07-线下取现-寄递黄金询问笔录.docx", "线下取现 · 寄递黄金", "qwen"),
+    DemoCase("case-01-baseline", "01-baseline.docx", "01 基线样例｜基础完整笔录", "基线样例（快速模拟结果）", "mock"),
+    DemoCase("case-02-line-breaks", "02-line-breaks.docx", "02 跨段问答样例", "跨段问答重建｜完整审查", "qwen"),
+    DemoCase("case-03-blank-answer", "03-blank-answer.docx", "03 空答样例", "空答识别｜完整审查", "qwen"),
+    DemoCase("case-04-long-answer", "04-long-answer.docx", "04 长文本样例", "长文本分页｜完整审查", "qwen"),
+    DemoCase("case-05-table-and-symbols", "05-table-and-symbols.docx", "05 表格与符号样例", "表格和特殊字符｜完整审查", "qwen"),
+    DemoCase("case-06-all-statuses-demo", "06-all-statuses-demo.docx", "06 五类结果演示笔录", "覆盖、遗漏、不清、矛盾、人工判断｜完整审查", "qwen"),
 ]
 
 

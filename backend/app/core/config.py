@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 
 # ── 项目根路径 ──────────────────────────────────────────────────
-# BACKEND_ROOT 指向 backend/ 目录，用于定位 rules.json、数据库等。
+# BACKEND_ROOT 指向 backend/ 目录，用于定位 template_rules.json、数据库等。
 BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BACKEND_ROOT / ".env.local")
 
@@ -24,6 +24,10 @@ load_dotenv(BACKEND_ROOT / ".env.local")
 QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "").rstrip("/")
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "")
+try:
+    QWEN_DOMAIN_CONCURRENCY = max(1, min(7, int(os.getenv("QWEN_DOMAIN_CONCURRENCY", "7"))))
+except ValueError:
+    QWEN_DOMAIN_CONCURRENCY = 7
 
 # ── CORS 与上传限制 ─────────────────────────────────────────────
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:4173")

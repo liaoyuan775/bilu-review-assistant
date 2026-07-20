@@ -143,6 +143,11 @@ export const generateReviewArtifacts = async (taskId: string) =>
     method: "POST",
   }));
 
+export const passDemoReview = async (taskId: string) =>
+  parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${encodeURIComponent(taskId)}/demo-pass`, {
+    method: "POST",
+  }));
+
 /** 完成复核并归档。 */
 export const archiveReview = async (taskId: string) =>
   parseResponse<{ reviewStatus: "archived"; archivedAt: string }>(await fetch(`/api/v1/reviews/${taskId}/archive`, { method: "POST" }));

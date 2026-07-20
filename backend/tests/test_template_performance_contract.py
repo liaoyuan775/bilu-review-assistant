@@ -4,6 +4,7 @@ import importlib
 import pytest
 
 from app.core.models import RuleStatus
+from app.core import config
 from app.review import extraction as extraction_mod
 from app.core.template_models import CaseExtraction, ExtractedFact, TemplateReviewIssue
 
@@ -23,7 +24,7 @@ def _domain_result(domain: str) -> CaseExtraction:
     })
 
 
-def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monkeypatch):
+def test_independent_domains_use_configured_concurrency_without_losing_facts(monkeypatch):
     domains = extraction_mod.DOMAIN_ORDER
     active = 0
     max_active = 0
@@ -34,7 +35,10 @@ def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monk
         max_active = max(max_active, active)
         await asyncio.sleep(0.02)
         active -= 1
-        return _domain_result(domain)
+        result = _domain_result(domain)
+        if focus_paths is None:
+            return result
+        return CaseExtraction(facts={path: result.facts[path] for path in focus_paths})
 
     monkeypatch.setattr(extraction_mod, "_request_domain", request)
     monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())
@@ -49,8 +53,8 @@ def test_independent_domains_use_seven_way_concurrency_without_losing_facts(monk
         domains=domains,
     ))
 
-    assert extraction_mod.DEFAULT_DOMAIN_CONCURRENCY == 7
-    assert max_active == 7
+    assert extraction_mod.DEFAULT_DOMAIN_CONCURRENCY == config.QWEN_DOMAIN_CONCURRENCY
+    assert max_active == config.QWEN_DOMAIN_CONCURRENCY
     assert set(extraction.facts) == {
         path for domain in domains for path in extraction_mod.DOMAIN_FACT_PATHS[domain]
     }
@@ -68,7 +72,10 @@ def test_domain_concurrency_can_be_reduced_for_a_sequential_baseline(monkeypatch
         max_active = max(max_active, active)
         await asyncio.sleep(0.01)
         active -= 1
-        return _domain_result(domain)
+        result = _domain_result(domain)
+        if focus_paths is None:
+            return result
+        return CaseExtraction(facts={path: result.facts[path] for path in focus_paths})
 
     monkeypatch.setattr(extraction_mod, "_request_domain", request)
     monkeypatch.setattr(extraction_mod.httpx, "AsyncClient", lambda **_kwargs: _DummyClient())

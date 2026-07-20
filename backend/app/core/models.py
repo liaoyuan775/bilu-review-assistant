@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any
 
 from uuid import uuid4
 
@@ -153,61 +153,9 @@ class QuestionAnswerBlock(BaseModel):
 # ═══════════════════════════════════════════════════════════════════
 
 class EvidenceLocation(BaseModel):
-    """证据在笔录中的位置（页号 + 段号，均从 1 开始计数）。
-
-    与 ModelEvidenceLocation 结构相同但约束更宽松（无 strict Schema）。
-    """
+    """证据在笔录中的位置（页号 + 段号，均从 1 开始计数）。"""
     page: int
     paragraph: int
-
-
-class ModelEvidenceLocation(BaseModel):
-    """模型输出中的证据定位 — 与 EvidenceLocation 同构但通过严格 Schema 校验。
-
-    约束：
-    - page/paragraph 必须 ≥ 1（Field(ge=1)）
-    - 禁止额外字段（extra="forbid"）
-    """
-    model_config = ConfigDict(extra="forbid")
-
-    page: int = Field(ge=1)
-    paragraph: int = Field(ge=1)
-
-
-class ModelRuleResult(BaseModel):
-    """模型对单条规则的完整判断结果（原始输出，未经过确定性校验）。
-
-    该结构是 Qwen 模型端的直接输出，与下游的 ReviewResult 不同。
-    ReviewResult 经过确定性规则引擎再做了一层校验和转换。
-    """
-    model_config = ConfigDict(extra="forbid")
-
-    factCoverage: dict[str, Literal["covered", "missing", "unknown"]]
-    evidenceLocations: list[ModelEvidenceLocation] = Field(max_length=3)
-    reason: str
-    suggestedQuestion: str
-    advisories: list[str]
-
-
-class ModelReviewOutput(BaseModel):
-    """模型七条规则的结构化输出（仅用于 JSON Schema 验证）。
-
-    规则 ID 使用别名映射（PRESENT-001 → present_001），
-    通过 as_keyed_payload() 转为以规则 ID 为键的字典。
-    """
-    model_config = ConfigDict(extra="forbid")
-
-    present_001: ModelRuleResult = Field(alias="PRESENT-001")
-    present_002: ModelRuleResult = Field(alias="PRESENT-002")
-    present_003: ModelRuleResult = Field(alias="PRESENT-003")
-    flow_001: ModelRuleResult = Field(alias="FLOW-001")
-    flow_002: ModelRuleResult = Field(alias="FLOW-002")
-    flow_003: ModelRuleResult = Field(alias="FLOW-003")
-    flow_004: ModelRuleResult = Field(alias="FLOW-004")
-
-    def as_keyed_payload(self) -> dict:
-        """以规则 ID 为键的字典，供下游校验直接使用。"""
-        return self.model_dump(mode="json", by_alias=True)
 
 
 class ManualDecision(BaseModel):
@@ -299,29 +247,31 @@ class ReviewTask(BaseModel):
     通过 revision 字段实现乐观锁并发控制。
     整个对象作为 payload_json 序列化到 SQLite review_tasks 表。
     """
-    model_config = ConfigDict(extra="forbid")
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    revision: int = Field(default=0, ge=0)
-    mode: ReviewMode
-    status: TaskStatus = TaskStatus.PARSING
-    document: ParsedDocument | None = None
-    documentId: str | None = None
-    documentVersionId: str | None = None
-    reviewRunId: str | None = None
-    extractionPayload: dict | None = None
-    victimProfile: VictimProfile | None = None
-    results: list[ReviewResult] = Field(default_factory=list)
-    failedDomains: list[str] = Field(default_factory=list)
-    acknowledgedWarnings: list[str] = Field(default_factory=list)
-    artifacts: list[ArtifactSummary] = Field(default_factory=list)
-    requiredArtifacts: list[str] = Field(default_factory=list)
-    timings: ReviewTimings = Field(default_factory=lambda: ReviewTimings())
-    reviewStatus: ReviewStatus = ReviewStatus.IN_REVIEW
-    archivedAt: str | None = None
-    createdAt: str = Field(default_factory=now_iso)
-    updatedAt: str = Field(default_factory=now_iso)
-    errorCode: str | None = None
-    errorMessage: str | None = None
+    model_config = ConfigDict(extra="forbid")  # 配置模型，禁止额外字段
+    #基础标识，id和乐观锁字段
+    id: str = Field(default_factory=lambda: str(uuid4()))  # 任务ID，使用UUID生成
+    revision: int = Field(default=0, ge=0)  # 版本号，用于乐观锁控制，最小值为0
+    mode: ReviewMode  # 审查模式
+    demoId: str | None = None  # 内置脱敏演示标识；普通上传为空
+    status: TaskStatus = TaskStatus.PARSING  # 任务状态，默认为PARSING
+    document: ParsedDocument | None = None  # 解析后的文档内容
+    documentId: str | None = None  # 文档ID
+    documentVersionId: str | None = None  # 文档版本ID
+    reviewRunId: str | None = None  # 审查运行ID
+    extractionPayload: dict | None = None  # 提取的数据负载
+    victimProfile: VictimProfile | None = None  # 受害者档案
+    results: list[ReviewResult] = Field(default_factory=list)  # 审查结果列表
+    failedDomains: list[str] = Field(default_factory=list)  # 失败的域名列表
+    acknowledgedWarnings: list[str] = Field(default_factory=list)  # 已确认的警告列表
+    artifacts: list[ArtifactSummary] = Field(default_factory=list)  # 工件摘要列表
+    requiredArtifacts: list[str] = Field(default_factory=list)  # 所需工件列表
+    timings: ReviewTimings = Field(default_factory=lambda: ReviewTimings())  # 审查时间记录
+    reviewStatus: ReviewStatus = ReviewStatus.IN_REVIEW  # 审查状态，默认为IN_REVIEW
+    archivedAt: str | None = None  # 归档时间
+    createdAt: str = Field(default_factory=now_iso)  # 创建时间，使用ISO格式
+    updatedAt: str = Field(default_factory=now_iso)  # 更新时间，使用ISO格式
+    errorCode: str | None = None  # 错误代码
+    errorMessage: str | None = None  # 错误消息
 
 
 # ═══════════════════════════════════════════════════════════════════

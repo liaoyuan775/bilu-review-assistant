@@ -47,6 +47,7 @@ from app.core.models import ArtifactSummary, ReviewMode, ReviewStatus, ReviewTas
 from app.storage.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_generated
 from app.reporting.docx_report import build_follow_up_docx
 from app.parsing.parser import PARSER_VERSION
+from app.reporting.presentation import fact_label, localize_fact_paths, sort_review_results
 from app.reporting.report_labels import event_type_label, format_datetime, manual_status_label, mode_label, severity_label
 from app.storage.store import get_audit_snapshot, get_task, save_artifact_record, save_task_with_events
 
@@ -59,11 +60,11 @@ else:
     _PDF_FONT = "STSong-Light"
     pdfmetrics.registerFont(UnicodeCIDFont(_PDF_FONT))
 _STATUS_LABELS = {
-    "covered": "已覆盖",
+    "covered": "已通过",
     "missing": "未询问",
     "incomplete": "回答不清",
     "inconsistent": "事实矛盾",
-    "not_applicable": "不适用",
+    "not_applicable": "规则不适用",
     "needs_manual_review": "待人工判断",
 }
 
@@ -231,14 +232,14 @@ def build_review_pdf(task: ReviewTask, payload: dict) -> bytes:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.extend([count_table, Spacer(1, 5 * mm), Paragraph("逐项审查与人工处置", heading)])
-    for index, item in enumerate(task.results, start=1):
+    for index, item in enumerate(sort_review_results(task.results), start=1):
         story.append(Paragraph(
             f"<b>{index}. {escape(item.ruleId)} {escape(item.ruleName)}</b>　{_STATUS_LABELS[item.status.value]}　{severity_label(item.severity)}风险",
             heading,
         ))
-        story.append(Paragraph(f"审查说明：{_paragraph_text(item.reason)}", body))
+        story.append(Paragraph(f"审查说明：{_paragraph_text(localize_fact_paths(item.reason))}", body))
         if item.missingFacts:
-            story.append(Paragraph(f"缺失或不清字段：{_paragraph_text('、'.join(item.missingFacts))}", small))
+            story.append(Paragraph(f"缺失或不清字段：{_paragraph_text('、'.join(fact_label(path) for path in item.missingFacts))}", small))
         if item.evidence:
             story.append(Paragraph(f"证据原文：{_paragraph_text(item.evidence)}", small))
         if item.suggestedQuestion:

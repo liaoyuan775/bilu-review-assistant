@@ -19,19 +19,20 @@ client = TestClient(app)
 
 
 EXPECTED_IDS = [
-    "case-01-basic-complete",
-    "case-02-explicit-omissions",
-    "case-03-app-rebate",
-    "case-04-fake-prosecutor-atm",
-    "case-05-investment-crypto",
-    "case-06-fake-service-remote-control",
-    "case-07-cash-gold-delivery",
+    "case-01-baseline",
+    "case-02-line-breaks",
+    "case-03-blank-answer",
+    "case-04-long-answer",
+    "case-05-table-and-symbols",
+    "case-06-all-statuses-demo",
 ]
 
 
-def test_demo_catalog_uses_only_the_seven_docx_cases():
+def test_demo_catalog_uses_five_chinese_named_fixtures():
     assert [case.id for case in DEMO_CASES] == EXPECTED_IDS
-    assert [case.executionMode for case in DEMO_CASES] == ["mock", *("qwen" for _ in range(6))]
+    assert [case.executionMode for case in DEMO_CASES] == ["mock", *("qwen" for _ in range(5))]
+    assert all(case.display_name for case in DEMO_CASES)
+    assert "五类结果" in DEMO_CASES[-1].display_name
     assert all(case.path.suffix.lower() == ".docx" and case.path.is_file() for case in DEMO_CASES)
     assert get_demo_case("sample-covered") is None
     assert get_demo_case("sample-missing") is None
@@ -46,14 +47,15 @@ def test_all_demo_docx_files_parse_into_non_empty_documents():
     assert [document.name for document in documents] == [case.filename for case in DEMO_CASES]
 
 
-def test_demo_api_lists_seven_cases_and_rejects_old_ids(tmp_path, monkeypatch):
+def test_demo_api_lists_five_cases_and_rejects_old_ids(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
 
     response = client.get("/api/v1/demos")
 
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["demos"]] == EXPECTED_IDS
-    assert [item["executionMode"] for item in response.json()["demos"]] == ["mock", *("qwen" for _ in range(6))]
+    assert [item["executionMode"] for item in response.json()["demos"]] == ["mock", *("qwen" for _ in range(5))]
+    assert all(item["name"] for item in response.json()["demos"])
     assert client.post("/api/v1/reviews/demos/sample-covered", json={}).status_code == 404
 
 
@@ -62,7 +64,7 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
     monkeypatch.setattr(artifacts, "ARTIFACT_STORAGE", ArtifactStorage(tmp_path / "artifacts"))
 
     with patch("app.review.review.run_template_review", new=AsyncMock(side_effect=AssertionError("Qwen must not be called"))):
-        created = client.post("/api/v1/reviews/demos/case-01-basic-complete", json={})
+        created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
 
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()
@@ -137,7 +139,7 @@ def test_case_02_uses_qwen_review(tmp_path, monkeypatch):
     )
 
     with patch("app.review.review.run_template_review", new=AsyncMock(return_value=outcome)) as review:
-        created = client.post("/api/v1/reviews/demos/case-02-explicit-omissions", json={"mode": "local"})
+        created = client.post("/api/v1/reviews/demos/case-02-line-breaks", json={"mode": "local"})
 
     assert created.status_code == 202
     task = client.get(f"/api/v1/reviews/{created.json()['taskId']}").json()

@@ -5,7 +5,6 @@
 - 所有已知业务异常都通过 AppError 显式抛出，避免 API 层产生 500。
 - retry_strategy 字段告知调用方模型应如何重试：
   - "schema": 保持 JSON Schema 策略重试（网络抖动 / 临时错误）。
-  - "tool":   降级为 Tool Calling 策略（服务端不支持 strict Schema）。
   - None:     不重试（鉴权 / 配置错误）。
 - rule_id / field / correction_hint 用于定位并修正模型输出的具体问题。
 """

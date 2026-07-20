@@ -10,7 +10,7 @@
 2. 所有业务域必须抽取成功（无 failedDomains）。
 3. 所有文档解析告警必须已确认。
 4. 所有必要产物必须已生成。
-5. 高风险问题必须已人工闭环（RESOLVED / NOT_APPLICABLE / IGNORED+理由）。
+5. 所有异常问题必须已人工闭环（RESOLVED / NOT_APPLICABLE / IGNORED+理由）。
 
 校验项（verify_archive_artifacts）：
 1. 所有产物在 SQLite 中有对应记录。
@@ -48,7 +48,7 @@ def assert_archive_ready(task: ReviewTask) -> None:
     2. 无失败业务域。
     3. 所有告警已确认。
     4. 所有产物已生成。
-    5. 高风险问题已闭环。
+    5. 所有异常问题已闭环。
 
     Raises:
         AppError: 任意条件不满足时抛出（含具体原因）。
@@ -66,22 +66,21 @@ def assert_archive_ready(task: ReviewTask) -> None:
     available_artifacts = {artifact.type for artifact in task.artifacts}
     if not set(task.requiredArtifacts).issubset(available_artifacts):
         raise AppError("archive_missing_artifacts", "审查报告、补问清单或结构化产物尚未生成，不能归档。", 409)
-    pending_high_risk = [
+    unresolved_issues = [
         result
         for result in task.results
-        if result.severity == "high"
-        and result.status in _ACTIONABLE
+        if result.status in _ACTIONABLE
         and not (
-            result.manualDecision.status == ManualStatus.RESOLVED
-            or result.manualDecision.status == ManualStatus.NOT_APPLICABLE
-            or (
-                result.manualDecision.status == ManualStatus.IGNORED
-                and bool(result.manualDecision.reason.strip())
-            )
+            result.manualDecision.status in {
+                ManualStatus.RESOLVED,
+                ManualStatus.NOT_APPLICABLE,
+                ManualStatus.IGNORED,
+            }
+            and bool(result.manualDecision.reason.strip())
         )
     ]
-    if pending_high_risk:
-        raise AppError("archive_pending_high_risk", f"仍有 {len(pending_high_risk)} 个高风险问题未闭环。", 409)
+    if unresolved_issues:
+        raise AppError("archive_pending_issues", f"仍有 {len(unresolved_issues)} 个问题未闭环，不能归档。", 409)
 
 
 def verify_archive_artifacts(task: ReviewTask) -> None:

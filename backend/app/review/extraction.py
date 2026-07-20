@@ -43,7 +43,7 @@ from time import perf_counter
 import httpx
 from pydantic import ValidationError
 
-from app.core.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
+from app.core.config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_DOMAIN_CONCURRENCY, QWEN_MODEL
 from app.data.rules import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
 from app.core.development_logging import log_event, log_payload
 from app.core.errors import AppError
@@ -55,16 +55,17 @@ from app.core.template_models import CaseExtraction, ExtractedFact, TemplateRevi
 
 # 7 个业务域的固定顺序
 DOMAIN_ORDER = (
-    "header_procedure",
-    "case_timeline",
-    "contact_channels",
-    "risk_and_evidence",
-    "online_money",
-    "offline_delivery",
-    "special_scenarios",
+    "header_procedure",#头信息与程序事项
+    "case_timeline",#案件时间线
+    "contact_channels",#联系渠道
+    "risk_and_evidence",#风险与证据
+    "online_money",#线上资金流
+    "offline_delivery",#线下交付
+    "special_scenarios",#特殊场景
 )
-# 最大并发域数（7 域同时调用）
-DEFAULT_DOMAIN_CONCURRENCY = 7
+# 可通过 QWEN_DOMAIN_CONCURRENCY 调整，范围 1-7。
+DEFAULT_DOMAIN_CONCURRENCY = QWEN_DOMAIN_CONCURRENCY
+MAX_FACTS_PER_SCHEMA_REQUEST = 8
 
 
 class TemplateDomainFailure(AppError):
@@ -193,7 +194,7 @@ class TemplateReviewOutcome:
     results: list[ReviewResult]
 
 
-def _fact_schema() -> dict:
+def _fact_schema(allowed_anchor_ids: tuple[str, ...] | None = None) -> dict:
     """生成单条事实的 JSON Schema。
 
     每条事实包含：
@@ -206,7 +207,17 @@ def _fact_schema() -> dict:
         "properties": {
             "value": {"type": ["string", "number", "integer", "boolean", "null"]},
             "clarity": {"type": "string", "enum": ["clear", "unclear", "unknown", "missing"]},
-            "evidenceAnchorIds": {"type": "array", "items": {"type": "string"}},
+            "evidenceAnchorIds": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                    **(
+                        {"$ref": "#/$defs/anchorId"}
+                        if allowed_anchor_ids is not None
+                        else {"type": "string"}
+                    ),
+                },
+            },
         },
         "required": ["value", "clarity", "evidenceAnchorIds"],
         "additionalProperties": False,
@@ -217,6 +228,7 @@ def template_extraction_schema(
     domain: str,
     *,
     fact_paths: tuple[str, ...] | None = None,
+    allowed_anchor_ids: tuple[str, ...] | None = None,
 ) -> dict:
     """生成指定业务域的完整 JSON Schema。
 
@@ -244,7 +256,7 @@ def template_extraction_schema(
                     "entityType": {"type": "string", "const": entity_type},
                     "fields": {
                         "type": "object",
-                        "properties": {field: _fact_schema() for field in fields},
+                        "properties": {field: {"$ref": "#/$defs/fact"} for field in fields},
                         "required": list(fields),
                         "additionalProperties": False,
                     },
@@ -253,12 +265,12 @@ def template_extraction_schema(
                 "additionalProperties": False,
             },
         }
-    return {
+    schema = {
         "type": "object",
         "properties": {
             "facts": {
                 "type": "object",
-                "properties": {path: _fact_schema() for path in selected_paths},
+                "properties": {path: {"$ref": "#/$defs/fact"} for path in selected_paths},
                 "required": selected_paths,
                 "additionalProperties": False,
             },
@@ -277,6 +289,12 @@ def template_extraction_schema(
         "required": ["facts", "entities", "failedDomains"],
         "additionalProperties": False,
     }
+    schema["$defs"] = {
+        "fact": _fact_schema(allowed_anchor_ids),
+    }
+    if allowed_anchor_ids is not None:
+        schema["$defs"]["anchorId"] = {"type": "string", "enum": list(allowed_anchor_ids)}
+    return schema
 
 
 def build_domain_prompt(
@@ -334,7 +352,7 @@ def build_domain_prompt(
 当前业务域：{domain}
 必须逐项返回这些事实路径：{json.dumps(requested, ensure_ascii=False)}{focus}
 必须逐项返回这些实体数组及字段：{json.dumps(requested_entities, ensure_ascii=False)}。文本明确出现某类实体时，即使只发生一次也必须创建一条实体；已明确笔数但逐笔信息缺失时，也必须创建与笔数相同的实体，缺少的实体字段按 missing 或 unknown 返回；只有连实体是否发生及数量都没有事实证据时才能返回空数组。
-clarity 只能是 clear、unclear、unknown、missing。clear/unclear/unknown 必须引用下方真实锚点；missing 不得引用锚点。
+clarity 只能是 clear、unclear、unknown、missing。clear/unclear 必须引用下方真实锚点；unknown/missing 不得引用锚点。
 evidenceAnchorIds 只能返回下方 A001 形式的短锚点，不得返回问答序号、原文片段或自行编造的 ID。{semantic_boundary}{money_boundary}
 括号模板说明和填写示例已经从问答中移除，不得把模板指导、问题措辞或空答案当成案件事实。重复转账、返款、取款、联系人切换和线下交付必须逐项保留，不能合并。
 电子方框标记按原文理解：[选中] 表示文档明确选择，可作为事实候选；[未选] 表示文档明确没有选择，不得作为肯定的案件事实；[状态不明] 表示解析无法确认，只能返回不清楚或未知，不得自行判断。
@@ -362,6 +380,18 @@ def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
             start=1,
         )
     }
+
+
+def _evidence_anchor_aliases(document: ParsedDocument) -> tuple[str, ...]:
+    """返回可作为事实证据的短锚点，排除空答案问答。"""
+    aliases = _anchor_aliases(document)
+    blank_anchors = {
+        anchor
+        for block in document.questionAnswers
+        if block.answerClarity == "blank"
+        for anchor in block.anchorIds
+    }
+    return tuple(alias for anchor, alias in aliases.items() if anchor not in blank_anchors)
 
 
 def _restore_anchor_aliases(document: ParsedDocument, extraction: CaseExtraction) -> None:
@@ -438,9 +468,19 @@ def validate_domain_extraction(
     }
 
     def validate_fact(path: str, fact: ExtractedFact) -> None:
-        if fact.clarity == "missing":
+        if fact.clarity in {"missing", "unknown"}:
             if fact.evidenceAnchorIds:
-                raise AppError("invalid_model_evidence", "缺失事实不得附带证据锚点。", 502, retry_strategy="schema", field=path)
+                raise AppError(
+                    "invalid_model_evidence",
+                    "缺失或未知事实不得附带证据锚点。",
+                    502,
+                    retry_strategy="schema",
+                    field=path,
+                    correction_hint=(
+                        f"{path} 的 clarity 为 missing 或 unknown 时，"
+                        "必须返回 value=null 且 evidenceAnchorIds=[]。"
+                    ),
+                )
             return
         normalized_anchors: list[str] = []
         for anchor in fact.evidenceAnchorIds:
@@ -575,15 +615,28 @@ async def _request_domain(
     payload = await request_structured_payload(
         client,
         messages=messages,
-        schema=template_extraction_schema(domain, fact_paths=focus_paths),
+        schema=template_extraction_schema(
+            domain,
+            fact_paths=focus_paths,
+            allowed_anchor_ids=_evidence_anchor_aliases(document),
+        ),
         schema_name=f"extract_{domain}",
-        tool_description=f"提交 {domain} 业务域的证据事实。",
     )
     try:
         extraction = CaseExtraction.model_validate(payload)
         _restore_anchor_aliases(document, extraction)
         return extraction
     except ValidationError as exc:
+        top_level_fields = set(payload) if isinstance(payload, dict) else set()
+        expected_fields = {"facts", "entities", "failedDomains"}
+        if not top_level_fields.issubset(expected_fields) or not expected_fields.issubset(top_level_fields):
+            raise AppError(
+                "structured_output_not_enforced",
+                "模型接口接受了 JSON Schema 参数，但返回结果未执行该 Schema。",
+                502,
+                field="payload",
+                correction_hint="structured_output_not_enforced",
+            ) from exc
         raise AppError(
             "invalid_model_schema",
             f"{domain} 域结果不符合结构约束。",
@@ -632,31 +685,61 @@ async def extract_template_facts(
                 if focus_paths is not None
                 else None
             )
+            if domain_focus_paths is not None:
+                request_batches: tuple[tuple[str, ...] | None, ...] = (domain_focus_paths,)
+            elif not DOMAIN_ENTITY_FIELDS[domain] and len(DOMAIN_FACT_PATHS[domain]) > MAX_FACTS_PER_SCHEMA_REQUEST:
+                paths = DOMAIN_FACT_PATHS[domain]
+                request_batches = tuple(
+                    paths[index:index + MAX_FACTS_PER_SCHEMA_REQUEST]
+                    for index in range(0, len(paths), MAX_FACTS_PER_SCHEMA_REQUEST)
+                )
+            else:
+                request_batches = (None,)
             async with semaphore:
                 try:
-                    correction: AppError | None = None
-                    for attempt in range(3):
-                        try:
-                            extracted = await _request_domain(
-                                client,
-                                document,
-                                domain,
-                                correction,
-                                domain_focus_paths,
-                            )
-                            validate_domain_extraction(
-                                document,
-                                domain,
-                                extracted,
-                                fact_paths=domain_focus_paths,
-                            )
-                            break
-                        except AppError as error:
-                            if error.code in {"model_not_configured", "model_auth_failed"}:
-                                raise
-                            correction = error
-                            if attempt == 2:
-                                raise
+                    extracted = CaseExtraction()
+                    for batch_paths in request_batches:
+                        correction: AppError | None = None
+                        for attempt in range(2):
+                            try:
+                                batch = await _request_domain(
+                                    client,
+                                    document,
+                                    domain,
+                                    correction,
+                                    batch_paths,
+                                )
+                                validate_domain_extraction(
+                                    document,
+                                    domain,
+                                    batch,
+                                    fact_paths=batch_paths,
+                                )
+                                break
+                            except AppError as error:
+                                if error.code in {"model_not_configured", "model_auth_failed"}:
+                                    raise
+                                if error.retry_strategy != "schema":
+                                    raise
+                                correction = (
+                                    None
+                                    if error.code in {"model_unreachable", "model_request_failed"}
+                                    else error
+                                )
+                                if attempt == 1:
+                                    raise
+                        overlap = set(extracted.facts).intersection(batch.facts)
+                        if overlap:
+                            raise AppError("template_domain_overlap", "业务域批次返回了重复事实路径。", 502, field=sorted(overlap)[0])
+                        extracted.facts.update(batch.facts)
+                        for entity_type, entities in batch.entities.items():
+                            extracted.entities.setdefault(entity_type, []).extend(entities)
+                    validate_domain_extraction(
+                        document,
+                        domain,
+                        extracted,
+                        fact_paths=domain_focus_paths,
+                    )
                 except AppError as error:
                     log_event(logging.ERROR, "template_extraction.domain_failed", domain=domain, code=error.code)
                     raise AppError(

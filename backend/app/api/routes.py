@@ -65,6 +65,7 @@ from app.review.review import (
     complete_review,
     create_task,
     follow_ups,
+    pass_demo_review,
     process_demo,
     process_upload,
     record_follow_up_answer,
@@ -112,7 +113,7 @@ async def list_demos():
         page_count = (await load_demo_document(case)).pageCount if case.path.is_file() else 0
         demos.append({
             "id": case.id,
-            "name": case.filename,
+            "name": case.display_name,
             "pageCount": page_count,
             "intent": case.intent,
             "executionMode": case.executionMode,
@@ -125,25 +126,25 @@ async def list_demos():
 # ═══════════════════════════════════════════════════════════
 
 async def create_upload_review(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks,  # 背景任务对象，用于添加异步任务
+    file: UploadFile = File(...),  # 文件上传对象，使用File装饰器标记为必需参数
 ):
     """上传文件并发起异步审查任务。
 
     在后台任务中执行：解析 → OCR → 模型审查 → 证据校验。
     前端通过轮询 GET /api/v1/reviews/{task_id} 获取进度。
     """
-    content = await file.read(MAX_FILE_SIZE + 1)
-    log_event(
+    content = await file.read(MAX_FILE_SIZE + 1)  # 读取文件内容，多读取1字节用于判断是否超出大小限制
+    log_event(  # 记录文件上传事件
         logging.INFO,
         "upload.received",
-        filename=file.filename or "unnamed",
-        content_type=file.content_type or "unknown",
-        bytes=len(content),
+        filename=file.filename or "unnamed",  # 如果文件名不存在则使用"unnamed"
+        content_type=file.content_type or "unknown",  # 如果内容类型不存在则使用"unknown"
+        bytes=len(content),  # 记录文件字节数
     )
-    if len(content) > MAX_FILE_SIZE:
-        raise AppError("file_too_large", "文件超过 20 MB 限制。", 413)
-    task = create_task(ReviewMode.QWEN)
+    if len(content) > MAX_FILE_SIZE:  # 检查文件大小是否超过限制
+        raise AppError("file_too_large", "文件超过 20 MB 限制。", 413)  # 抛出应用错误，状态码413表示请求实体过大
+    task = create_task(ReviewMode.QWEN)  # 创建审查任务，使用QWEN模式
     log_event(logging.INFO, "upload.task_created", task_id_created=task.id, mode=task.mode.value)
     background_tasks.add_task(process_upload, task.id, file.filename or "unnamed", content)
     return {"taskId": task.id, "status": task.status}
@@ -157,7 +158,7 @@ async def create_demo_review(demo_id: str, background_tasks: BackgroundTasks):
     if not case.path.is_file():
         raise AppError("demo_file_missing", "演示文档暂不可用。", 503)
     mode = ReviewMode(case.executionMode)
-    task = create_task(mode)
+    task = create_task(mode, demo_id=demo_id)
     background_tasks.add_task(process_demo, task.id, demo_id)
     return {"taskId": task.id, "status": task.status}
 
@@ -210,6 +211,11 @@ async def acknowledge_review_warnings(task_id: str, payload: WarningAcknowledgem
 # ═══════════════════════════════════════════════════════════
 
 async def generate_artifacts(task_id: str):
+    return generate_review_artifacts(task_id)
+
+
+async def demo_pass_review(task_id: str):
+    pass_demo_review(task_id)
     return generate_review_artifacts(task_id)
 
 

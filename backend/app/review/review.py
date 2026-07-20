@@ -151,7 +151,7 @@ def _merge_manual_decisions(
     return sorted(invalidated)
 
 
-def create_task(mode: ReviewMode) -> ReviewTask:
+def create_task(mode: ReviewMode, demo_id: str | None = None) -> ReviewTask:
     """创建新的审查任务并持久化。
 
     Args:
@@ -160,7 +160,7 @@ def create_task(mode: ReviewMode) -> ReviewTask:
     Returns:
         已保存的 ReviewTask 实例（status = PARSING）。
     """
-    return save_task(ReviewTask(mode=mode))
+    return save_task(ReviewTask(mode=mode, demoId=demo_id))
 
 
 async def process_upload(task_id: str, filename: str, content: bytes) -> None:
@@ -498,6 +498,68 @@ def record_issue_action(
         },
     }])
     return result
+
+
+def pass_demo_review(task_id: str) -> ReviewTask:
+    """Close all outstanding issues for a built-in sanitized demo."""
+    task = get_task(task_id)
+    if task is None:
+        raise AppError("task_not_found", "审查任务不存在。", 404)
+    if task.reviewStatus == ReviewStatus.ARCHIVED:
+        raise AppError("review_archived", "已归档审查为只读，不能继续修改。", 409)
+    if task.status != TaskStatus.COMPLETED:
+        raise AppError("task_not_completed", "任务尚未完成，不能执行演示处理。", 409)
+    if not task.demoId:
+        raise AppError("demo_action_not_allowed", "测试通过仅适用于内置脱敏演示。", 409)
+    if task.failedDomains:
+        raise AppError("demo_has_failed_domains", "仍有抽取失败域，不能执行一键测试通过。", 409)
+
+    actionable = {
+        RuleStatus.MISSING,
+        RuleStatus.INCOMPLETE,
+        RuleStatus.INCONSISTENT,
+        RuleStatus.NEEDS_MANUAL_REVIEW,
+    }
+    terminal = {
+        ManualStatus.RESOLVED,
+        ManualStatus.NOT_APPLICABLE,
+        ManualStatus.IGNORED,
+    }
+    events = []
+    for result in task.results:
+        decision = result.manualDecision
+        if result.status not in actionable or (
+            decision.status in terminal and bool(decision.reason.strip())
+        ):
+            continue
+        previous = decision.model_dump(mode="json")
+        result.manualDecision = ManualDecision(
+            status=ManualStatus.RESOLVED,
+            reason="脱敏演示：一键测试通过",
+        )
+        events.append({
+            "issue_id": _issue_id(task.id, result.ruleId),
+            "event_type": ManualStatus.RESOLVED,
+            "actor_id": "demo-operator",
+            "payload": {
+                "ruleId": result.ruleId,
+                "previous": previous,
+                "current": result.manualDecision.model_dump(mode="json"),
+            },
+        })
+
+    warning_codes = [warning.code for warning in task.document.warnings] if task.document else []
+    newly_acknowledged = [code for code in warning_codes if code not in task.acknowledgedWarnings]
+    task.acknowledgedWarnings = list(dict.fromkeys([*task.acknowledgedWarnings, *warning_codes]))
+    if newly_acknowledged:
+        events.append({
+            "issue_id": None,
+            "event_type": "warnings_acknowledged",
+            "actor_id": "demo-operator",
+            "payload": {"codes": newly_acknowledged},
+        })
+    _invalidate_generated_artifacts(task)
+    return save_task_with_events(task, events)
 
 
 def acknowledge_warnings(task_id: str, codes: list[str], actor_id: str) -> ReviewTask:

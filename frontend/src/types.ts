@@ -126,6 +126,7 @@ export interface ArtifactSummary {
 export interface ReviewTask {
   id: string;
   mode: ReviewMode;
+  demoId?: string | null;
   status: TaskStatus;
   document: ParsedDocument | null;
   documentId: string | null;

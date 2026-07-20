@@ -53,7 +53,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
+import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, passDemoReview, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
 import { evidenceLocationsFor, isEvidencePage, isEvidenceParagraph } from "./evidenceSelection";
 import { getReviewErrorTitle } from "./errorPresentation";
 import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
@@ -78,7 +78,7 @@ const statusMeta: Record<RuleStatus, { label: string; className: string; icon: t
   missing: { label: "提问遗漏", className: "missing", icon: AlertCircle },
   incomplete: { label: "回答不完整", className: "incomplete", icon: Clock3 },
   inconsistent: { label: "事实矛盾", className: "inconsistent", icon: AlertTriangle },
-  not_applicable: { label: "不适用", className: "not-applicable", icon: CircleSlash2 },
+  not_applicable: { label: "规则不适用", className: "not-applicable", icon: CircleSlash2 },
   needs_manual_review: { label: "待人工判断", className: "manual-review", icon: ShieldCheck },
 };
 
@@ -298,6 +298,20 @@ function App() {
     }
   };
 
+  const passAllDemoIssues = async () => {
+    try {
+      const updated = await passDemoReview(task.id);
+      setTask(updated);
+      setSelectedRuleId(updated.results.find((item) =>
+        actionableStatuses.has(item.status) && !["resolved", "not_applicable", "ignored"].includes(item.manualDecision.status),
+      )?.ruleId ?? null);
+      showToast("演示问题已全部测试通过，归档产物已生成");
+    } catch (error) {
+      showToast(error instanceof ApiError ? error.message : "一键测试通过失败");
+      throw error;
+    }
+  };
+
   /** 完成复核并归档（所有待处置项必须已分流）。 */
   const finishReview = async () => {
     try {
@@ -468,6 +482,7 @@ function App() {
             onAction={updateManualDecision}
             onFollowUp={saveFollowUpAnswer}
             onGenerateArtifacts={generateArtifacts}
+            onDemoPassAll={passAllDemoIssues}
             onArchive={finishReview}
             onShowReport={openReport}
             onAcknowledgeWarnings={confirmWarnings}
@@ -567,7 +582,7 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
 
       <div className="sample-section entrance-3">
         <div className="section-heading-row">
-          <div><h2>脱敏演示样例</h2><p>01 可快速查看完整效果，02–07 使用 Qwen 完整审查。</p></div>
+          <div><h2>脱敏测试样例</h2><p>01 为快速模拟结果，02–06 通过完整审查接口。</p></div>
           <span>共 {demos.length} 份</span>
         </div>
         <div className="sample-list">
@@ -576,9 +591,9 @@ function NewReviewView({ task, processing, isDragging, setIsDragging, fileInputR
             return (
             <button key={demo.id} className="sample-row" onClick={() => onDemo(demo)} disabled={processing || unavailable}>
               <span className="sample-index">0{index + 1}</span>
-              <span className="sample-file"><FileText size={18} /><span><strong>{demo.name}</strong><small>{demo.pageCount} 页 · 脱敏样例</small></span></span>
+              <span className="sample-file"><FileText size={18} /><span><strong>{demo.name}</strong><small>{demo.pageCount} 页 · 中文脱敏测试文件</small></span></span>
               <span className="sample-intent">{demo.intent}</span>
-              <span className={`sample-mode ${demo.executionMode}`}>{demo.executionMode === "mock" ? "模拟结果" : "Qwen 完整审查"}</span>
+              <span className={`sample-mode ${demo.executionMode}`}>{demo.executionMode === "mock" ? "模拟结果" : "完整接口审查"}</span>
               <ChevronRight size={18} />
             </button>
           );})}
@@ -933,7 +948,7 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
         <header><span>笔录辅助审查</span><h1>审查复核报告</h1><p>智能审查结果仅供复盘参考，以人工审核为准。</p></header>
         <dl className="report-meta">
           <div><dt>文件名称</dt><dd>{report.document?.name ?? "未命名笔录"}</dd></div>
-          <div><dt>审查模式</dt><dd>{report.mode === "mock" ? "快速模拟演示" : report.mode === "local" ? "旧版本地演示" : "Qwen 模型"}</dd></div>
+          <div><dt>审查模式</dt><dd>{report.mode === "mock" ? "快速模拟演示" : report.mode === "local" ? "旧版本地演示" : "完整模型审查"}</dd></div>
           <div><dt>审查时间</dt><dd>{new Date(report.createdAt).toLocaleString("zh-CN")}</dd></div>
           <div><dt>归档时间</dt><dd>{report.archivedAt ? new Date(report.archivedAt).toLocaleString("zh-CN") : "尚未归档"}</dd></div>
           <div><dt>复核状态</dt><dd>{report.reviewStatus === "archived" ? "已完成并归档" : "复核中"}</dd></div>
@@ -949,7 +964,7 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
             </dl>
           </section>
         )}
-        <section className="report-summary"><h2>审查概览</h2><div><span>验证通过 <strong>{counts.covered}</strong></span><span>提问遗漏 <strong>{counts.missing}</strong></span><span>回答不完整 <strong>{counts.incomplete}</strong></span><span>不适用 <strong>{counts.not_applicable}</strong></span></div></section>
+        <section className="report-summary"><h2>审查概览</h2><div><span>验证通过 <strong>{counts.covered}</strong></span><span>提问遗漏 <strong>{counts.missing}</strong></span><span>回答不完整 <strong>{counts.incomplete}</strong></span><span>规则不适用 <strong>{counts.not_applicable}</strong></span></div></section>
         <section className="report-results"><h2>逐项审查与人工分流</h2>{report.results.map((item) => (
           <article key={item.ruleId}>
             <div><code>{item.ruleId}</code><strong>{item.ruleName}</strong><span>{statusMeta[item.status].label}</span><em>{manualLabel[item.manualDecision.status]}</em></div>
