@@ -11,7 +11,6 @@ API 路由定义 — FastAPI 应用的全部 HTTP 端点。
   GET    /api/v1/reviews/{id}                    — 任务详情
   GET    /api/v1/reviews/{id}/versions           — 文档版本历史
   POST   /api/v1/reviews/{id}/issues/{rid}/actions       — 人工操作
-  POST   /api/v1/reviews/{id}/issues/{rid}/follow-up-answer — 补问答案
   POST   /api/v1/reviews/{id}/domains/{domain}/retry     — 重试域
   POST   /api/v1/reviews/{id}/warnings/acknowledge       — 确认告警
   POST   /api/v1/reviews/{id}/artifacts/generate         — 生成产物
@@ -46,7 +45,6 @@ from app.core.models import (
     DemoListResponse,
     HealthResponse,
     FollowUpListResponse,
-    FollowUpAnswerRequest,
     ReportData,
     ReviewListResponse,
     ReviewMode,
@@ -68,7 +66,6 @@ from app.review.review import (
     pass_demo_review,
     process_demo,
     process_upload,
-    record_follow_up_answer,
     record_issue_action,
     report_data,
     retry_failed_domain,
@@ -186,16 +183,6 @@ async def list_review_versions(task_id: str):
 
 async def save_issue_action(task_id: str, rule_id: str, payload: IssueActionRequest):
     return {"result": record_issue_action(task_id, rule_id, payload.status, payload.reason, payload.actorId)}
-
-
-async def save_follow_up_answer(task_id: str, rule_id: str, payload: FollowUpAnswerRequest):
-    return await record_follow_up_answer(
-        task_id,
-        rule_id,
-        question=payload.question,
-        answer=payload.answer,
-        actor_id=payload.actorId,
-    )
 
 
 async def retry_review_domain(task_id: str, domain: str, payload: RetryDomainRequest):

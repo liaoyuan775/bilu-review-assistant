@@ -750,6 +750,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .report-summary span { padding: 12px; color: var(--text-secondary); border-right: 1px solid var(--line); font-size: 11px; text-align: center; }
 .report-summary span:last-child { border-right: 0; }
 .report-summary strong { display: block; margin-top: 4px; color: var(--text); font-size: 20px; }
+.report-handling-summary > p { color: var(--text-secondary); font-size: 11px; }
+.report-handling-summary > article { padding: 10px 0; border-top: 1px solid var(--line); break-inside: avoid; }
+.report-handling-summary > article > div { display: flex; align-items: center; gap: 9px; }
+.report-handling-summary code { color: #35658f; font-size: 10px; }
+.report-handling-summary strong { font-size: 13px; }
+.report-handling-summary em { margin-left: auto; padding: 3px 6px; border-radius: 3px; color: #075fc6; background: var(--primary-soft); font-size: 10px; font-style: normal; }
+.report-handling-summary article p { margin: 6px 0 0; color: #4f5e72; font-size: 11px; }
+.report-handling-summary b { color: #293a53; }
 .report-results > article { padding: 15px 0; border-top: 1px solid var(--line); break-inside: avoid; }
 .report-results > article > div { display: flex; align-items: center; gap: 9px; }
 .report-results code { color: #35658f; font-size: 10px; }

@@ -53,7 +53,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, generateReviewArtifacts, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, passDemoReview, pollReviewTask, retryReviewDomain, submitFollowUpAnswer, submitIssueAction } from "./api";
+import { acknowledgeWarnings, ApiError, archiveReview, createDemoTask, createUploadTask, getDemos, getHealth, getReportData, getReviewHistory, getReviewTask, getRules, passDemoReview, pollReviewTask, retryReviewDomain, submitIssueAction } from "./api";
 import { evidenceLocationsFor, isEvidencePage, isEvidenceParagraph } from "./evidenceSelection";
 import { getReviewErrorTitle } from "./errorPresentation";
 import { effectiveFollowUpQuestion, formatFollowUpList } from "./followUpText";
@@ -258,17 +258,6 @@ function App() {
     }
   };
 
-  const saveFollowUpAnswer = async (ruleId: string, question: string, answer: string) => {
-    try {
-      const updated = await submitFollowUpAnswer(task.id, ruleId, question, answer);
-      setTask(updated);
-      setSelectedRuleId(updated.results.find((item) => actionableStatuses.has(item.status) && item.manualDecision.status === "pending")?.ruleId ?? ruleId);
-      showToast("补问答案已记录，受影响业务域已重审");
-    } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "补问答案保存失败");
-      throw error;
-    }
-  };
 
   const confirmWarnings = async (codes: string[]) => {
     try {
@@ -285,16 +274,6 @@ function App() {
       showToast(`${domain} 已重新审查`);
     } catch (error) {
       showToast(error instanceof ApiError ? error.message : "业务域重试失败");
-    }
-  };
-
-  const generateArtifacts = async () => {
-    try {
-      setTask(await generateReviewArtifacts(task.id));
-      showToast("归档产物已生成并完成哈希登记");
-    } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "归档产物生成失败");
-      throw error;
     }
   };
 
@@ -480,8 +459,6 @@ function App() {
             onSelectRule={setSelectedRuleId}
             onBack={() => setView("new")}
             onAction={updateManualDecision}
-            onFollowUp={saveFollowUpAnswer}
-            onGenerateArtifacts={generateArtifacts}
             onDemoPassAll={passAllDemoIssues}
             onArchive={finishReview}
             onShowReport={openReport}
@@ -941,6 +918,7 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
   const counts = report.results.reduce((total, item) => ({ ...total, [item.status]: total[item.status] + 1 }), {
     covered: 0, missing: 0, incomplete: 0, inconsistent: 0, not_applicable: 0, needs_manual_review: 0,
   } as Record<RuleStatus, number>);
+  const handledResults = report.results.filter((item) => item.manualDecision.status !== "pending");
   return (
     <section className="report-page">
       <div className="report-toolbar"><button className="icon-button" onClick={onBack} title="返回审查结果"><ArrowLeft size={18} /></button><span>审查复核报告</span><button className="primary-button compact" onClick={() => window.print()}><Printer size={16} />打印/另存为 PDF</button></div>
@@ -965,6 +943,15 @@ function ReportView({ report, onBack }: { report: ReportData; onBack: () => void
           </section>
         )}
         <section className="report-summary"><h2>审查概览</h2><div><span>验证通过 <strong>{counts.covered}</strong></span><span>提问遗漏 <strong>{counts.missing}</strong></span><span>回答不完整 <strong>{counts.incomplete}</strong></span><span>规则不适用 <strong>{counts.not_applicable}</strong></span></div></section>
+        <section className="report-handling-summary">
+          <h2>人工处理汇总</h2>
+          {handledResults.length === 0 ? <p>暂无人工处理记录。</p> : handledResults.map((item) => (
+            <article key={item.ruleId}>
+              <div><code>{item.ruleId}</code><strong>{item.ruleName}</strong><em>{manualLabel[item.manualDecision.status]}</em></div>
+              <p><b>处理理由：</b>{item.manualDecision.reason || "未填写"}</p>
+            </article>
+          ))}
+        </section>
         <section className="report-results"><h2>逐项审查与人工分流</h2>{report.results.map((item) => (
           <article key={item.ruleId}>
             <div><code>{item.ruleId}</code><strong>{item.ruleName}</strong><span>{statusMeta[item.status].label}</span><em>{manualLabel[item.manualDecision.status]}</em></div>

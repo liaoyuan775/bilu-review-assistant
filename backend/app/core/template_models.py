@@ -20,7 +20,7 @@
 事实抽取：
   ExtractedFact         — 单个事实（值+清晰度+证据锚点+模型置信度）
   ExtractedEntity       — 重复实体实例（如一次转账记录）
-  CaseExtraction        — 7 域合并后的全案事实抽取
+  CaseExtraction        — 6 个业务域合并后的全案事实抽取
 
 审查问题：
   TemplateReviewIssue   — 规则引擎输出的一条审查结论

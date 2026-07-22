@@ -29,7 +29,7 @@ class TaskStatus(StrEnum):
     UPLOADING = "uploading"    # 文件上传中
     PARSING = "parsing"        # 文档解析中
     RECOGNIZING = "recognizing"  # 图像文字识别中
-    CHECKING = "checking"      # 规则审查中（三现四流）
+    CHECKING = "checking"      # 模型事实抽取与模板规则审查中
     VALIDATING = "validating"  # 证据校验中
     COMPLETED = "completed"    # 审查完成
     FAILED = "failed"          # 审查失败（不可恢复）
@@ -60,21 +60,21 @@ class RuleStatus(StrEnum):
 
 class ManualStatus(StrEnum):
     """人工处置状态 — 与 RuleStatus 并列，不覆盖自动计算结果。"""
-    PENDING = "pending"
-    CONFIRMED = "confirmed"
-    SUPPLEMENTED = "supplemented"
-    IGNORED = "ignored"
-    RESOLVED = "resolved"
-    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending" # 待处理
+    CONFIRMED = "confirmed" # 已确认
+    SUPPLEMENTED = "supplemented" # 已补充
+    IGNORED = "ignored" # 已忽略
+    RESOLVED = "resolved" # 已解决
+    NOT_APPLICABLE = "not_applicable" # 不适用
 
 
 class SourceType(StrEnum):
     """段落来源类型 — 用于 UI 标注和锚点追溯。"""
-    NATIVE_TEXT = "native_text"
-    TABLE = "table"
-    HEADER = "header"
-    FOOTER = "footer"
-    VISION = "vision"
+    NATIVE_TEXT = "native_text" # 原生文本段落
+    TABLE = "table" # 表格段落
+    HEADER = "header" # 页眉
+    FOOTER = "footer" # 页脚
+    VISION = "vision" # 图像文字识别结果
 
 
 # ═══════════════════════════════════════════════════════════════════

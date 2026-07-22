@@ -51,7 +51,7 @@ from app.data.rules import TEMPLATE_RULE_CATALOG
 from app.core.development_logging import log_event, log_payload, reset_task_id, set_task_id
 from app.core.errors import AppError
 from app.core.models import ArtifactSummary, DocumentParagraph, ManualDecision, ManualStatus, ReviewMode, ReviewResult, ReviewStatus, ReviewTask, RuleStatus, SourceType, TaskStatus, now_iso
-from app.reporting.archive import assert_archive_ready, verify_archive_artifacts
+from app.reporting.archive import assert_archive_ready
 from app.storage.artifacts import GENERATED_REVIEW_ARTIFACT_TYPES, save_original
 from app.parsing.question_answer import reconstruct_question_answers
 from app.review.mock import build_mock_review
@@ -111,7 +111,7 @@ def _invalidate_generated_artifacts(task: ReviewTask) -> None:
 
 def _missing_extraction_domains(extraction: CaseExtraction) -> list[str]:
     """检查哪些业务域的事实或实体尚未成功抽取。"""
-    missing: list[str] = []
+    missing: list[str] = list(extraction.failedDomains)
     for domain in DOMAIN_ORDER:
         required_entities = DOMAIN_ENTITY_FIELDS[domain]
         if (
@@ -421,6 +421,9 @@ def _persist_outcome(
     返回是否成功。
     """
     task.extractionPayload = outcome.extraction.model_dump(mode="json")
+    task.failedDomains = list(dict.fromkeys([*task.failedDomains, *outcome.failed_domains]))
+    task.domainErrors.update(outcome.domain_errors)
+    task.domainErrorDetails.update(outcome.domain_error_details)
     snapshot = get_audit_snapshot(task.id)
     if not task.documentVersionId or not any(
         version["id"] == task.documentVersionId for version in snapshot["versions"]
@@ -489,8 +492,6 @@ def record_issue_action(
     if result is None:
         raise AppError("rule_result_not_found", "规则结果不存在。", 404)
     normalized_reason = reason.strip()
-    if status in {ManualStatus.IGNORED, ManualStatus.RESOLVED, ManualStatus.NOT_APPLICABLE} and not normalized_reason:
-        raise AppError("decision_reason_required", "该处理动作必须填写依据。", 422)
     previous = result.manualDecision.model_dump(mode="json")
     result.manualDecision.status = status
     result.manualDecision.reason = normalized_reason
@@ -838,7 +839,8 @@ def complete_review(task_id: str) -> ReviewTask:
         raise AppError("task_not_found", "审查任务不存在。", 404)
     if task.documentVersionId:
         assert_archive_ready(task)
-        verify_archive_artifacts(task)
+        from app.reporting.reports import generate_review_artifacts
+        task = generate_review_artifacts(task_id)
     else:
         pending = [
             item for item in task.results

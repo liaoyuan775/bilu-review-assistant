@@ -1,0 +1,37 @@
+{
+  "title": "笔录审查真实请求时序",
+  "participants": [
+    {"id": "user", "label": "办案人员", "actor": true},
+    {"id": "web", "label": "React 前端"},
+    {"id": "api", "label": "FastAPI"},
+    {"id": "job", "label": "后台审查任务"},
+    {"id": "parser", "label": "DOCX/PDF 解析器"},
+    {"id": "qwen", "label": "Qwen 严格 Schema"},
+    {"id": "rules", "label": "34 条规则引擎"},
+    {"id": "store", "label": "SQLite / 产物目录"}
+  ],
+  "messages": [
+    {"from": "user", "to": "web", "label": "选择 DOCX/PDF 并提交"},
+    {"from": "web", "to": "api", "label": "POST /api/v1/reviews"},
+    {"from": "api", "to": "store", "label": "保存任务、原件与 SHA-256"},
+    {"from": "api", "to": "job", "label": "启动 BackgroundTask"},
+    {"from": "api", "to": "web", "label": "202 + taskId", "return": true},
+    {"from": "web", "to": "api", "label": "轮询 GET /reviews/{taskId}", "async": true},
+    {"from": "job", "to": "parser", "label": "parse_document(filename, bytes)"},
+    {"from": "parser", "to": "parser", "label": "重建完整 QA / 非 QA 证据块"},
+    {"from": "parser", "to": "job", "label": "ParsedDocument + 锚点", "return": true},
+    {"from": "job", "to": "qwen", "label": "并发 6 域 strict JSON Schema"},
+    {"note": "每个域使用公共提示词 + 独立域提示词 + 自动生成 Schema", "over": "qwen"},
+    {"from": "qwen", "to": "qwen", "label": "仅 Schema/JSON 或瞬时错误按配置域级重试"},
+    {"from": "qwen", "to": "job", "label": "事实、实体、clarity、证据锚点", "return": true},
+    {"from": "job", "to": "rules", "label": "校验类型/锚点后执行 34 条规则"},
+    {"from": "rules", "to": "job", "label": "六类状态 + 理由 + 证据", "return": true},
+    {"from": "job", "to": "store", "label": "保存结果、域错误与审计记录"},
+    {"from": "api", "to": "web", "label": "任务详情与 34 条结果", "return": true},
+    {"from": "web", "to": "user", "label": "六类汇总、完整 QA 高亮、人工处置", "return": true},
+    {"from": "user", "to": "web", "label": "生成报告 / 补问 DOCX / 归档"},
+    {"from": "web", "to": "api", "label": "产物或归档接口"},
+    {"from": "api", "to": "store", "label": "写入 PDF、DOCX、JSON、清单"},
+    {"from": "api", "to": "web", "label": "产物列表 / 归档结果", "return": true}
+  ]
+}

@@ -51,6 +51,24 @@ def test_representative_types_are_specific():
     assert evidence.facts["evidence.record_types"].valueSchema.items == "string"
 
 
+def test_incident_location_is_one_fact_used_by_case_and_time_rules():
+    timeline = DOMAIN_CONTRACTS["case_timeline"]
+
+    assert timeline.facts["timeline.incident_location"].valueSchema.type == ("string", "null")
+    assert not {
+        "timeline.incident_district",
+        "timeline.incident_street",
+        "timeline.incident_community",
+    } & set(timeline.facts)
+
+    rules = {rule.ruleId: rule for rule in TEMPLATE_RULES}
+    assert "timeline.incident_location" in rules["CASE-001"].requiredFields
+    assert rules["TIME-001"].requiredFields == [
+        "timeline.incident_at",
+        "timeline.incident_location",
+    ]
+
+
 def test_entity_relationships_are_derived_from_contracts():
     assert DOMAIN_ENTITY_FIELDS["online_money"]["transfers"] == (
         "time", "amount", "payment_method", "payer_account", "recipient_account", "transaction_id",

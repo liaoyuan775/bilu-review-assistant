@@ -54,42 +54,51 @@ def _render_fact(path: str, fact: FactContract) -> str:
 
 
 def render_domain_prompt(
-    document: ParsedDocument,
-    contract: DomainContract,
-    fact_paths: tuple[str, ...] | None = None,
+    document: ParsedDocument,  # 解析后的文档对象
+    contract: DomainContract,  # 领域契约对象
+    fact_paths: tuple[str, ...] | None = None,  # 事实路径元组，可选参数
     *,
-    correction: str | None = None,
+    correction: str | None = None,  # 校正信息，仅关键字参数
 ) -> str:
+    # 如果提供了事实路径则使用，否则使用契约中的所有事实
     selected_paths = fact_paths if fact_paths is not None else tuple(contract.facts)
+    # 验证所选事实路径是否都在契约的事实集合中
     if not set(selected_paths).issubset(contract.facts):
         raise ValueError(f"Fact path does not belong to extraction domain: {contract.domain}")
 
+    # 获取证据锚点的别名
     aliases = evidence_anchor_aliases(document)
     if document.evidenceBlocks:
+        # 将问答按ID组织成字典
         qa_by_id = {block.id: block for block in document.questionAnswers}
+        # 生成问答交换内容
         exchanges = "\n".join(
             f"[问答{index}][锚点:{aliases[block.id]}] {block.text}"
             for index, block in enumerate(document.evidenceBlocks, start=1)
             if block.kind == "qa" and qa_by_id.get(block.id, None) is not None
             and qa_by_id[block.id].answerClarity != "blank"
         )
+        # 生成结构化文本内容
         structural = "\n".join(
             f"[锚点:{aliases[block.id]}][第{block.page or 1}页] {block.text}"
             for block in document.evidenceBlocks
             if block.kind == "text"
         )
     else:
+        # 收集所有问答锚点ID
         qa_anchor_ids = {
             anchor
             for block in document.questionAnswers
             for anchor in block.anchorIds
         }
+        # 生成问答交换内容
         exchanges = "\n".join(
             f"[问答{index}][锚点:{','.join(aliases[anchor] for anchor in block.anchorIds)}] "
             f"问：{block.question} 答：{block.answer}"
             for index, block in enumerate(document.questionAnswers, start=1)
             if block.answerClarity != "blank"
         )
+        # 生成结构化文本内容
         structural = "\n".join(
             f"[锚点:{aliases[paragraph.id]}][第{page.page}页] {paragraph.text}"
             for page in document.pages
@@ -97,12 +106,15 @@ def render_domain_prompt(
             if paragraph.id not in qa_anchor_ids
         )
 
+    # 构建请求行列表
     requested_lines = [
         "必须逐项返回这些事实路径：" + json.dumps(selected_paths, ensure_ascii=False),
         "事实：",
     ]
+    # 添加每个事实的渲染内容
     requested_lines.extend(_render_fact(path, contract.facts[path]) for path in selected_paths)
     requested_lines.append("实体：")
+    # 根据是否有事实路径或实体决定如何处理实体部分
     if fact_paths is not None or not contract.entities:
         requested_lines.append("必须逐项返回这些实体数组及字段：{}")
         requested_lines.append("- 无")
@@ -117,6 +129,7 @@ def render_domain_prompt(
                 ensure_ascii=False,
             )
         )
+        # 添加每个实体的描述和元数据
         for entity_type, entity in contract.entities.items():
             metadata = [f"entityType={entity_type}"]
             if entity.applicabilityPath:
@@ -124,15 +137,18 @@ def render_domain_prompt(
             if entity.countPath:
                 metadata.append(f"计数字段={entity.countPath}")
             requested_lines.append(f"- {entity.description}; {'; '.join(metadata)}")
+            # 添加每个字段的描述和类型信息
             requested_lines.extend(
                 f"  - {field}: {definition.description}; value 类型={_type_label(definition.valueSchema)}"
                 for field, definition in entity.fields.items()
             )
 
+    # 构建边界信息
     boundary = "\n".join([
         "包含：" + "；".join(contract.include),
         "排除：" + "；".join(contract.exclude),
     ])
+    # 创建替换字典
     replacements = {
         "{{DOMAIN_NAME}}": contract.domain,
         "{{DOMAIN_TITLE}}": contract.title,
@@ -145,6 +161,7 @@ def render_domain_prompt(
         "{{STRUCTURAL_TEXT}}": structural,
         "{{QUESTION_ANSWERS}}": exchanges,
     }
+    # 使用模板和替换值生成提示
     prompt = PROMPT_TEMPLATE
     for placeholder, value in replacements.items():
         prompt = prompt.replace(placeholder, value)

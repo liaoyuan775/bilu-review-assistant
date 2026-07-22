@@ -73,7 +73,7 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
     assert task["documentId"]
     assert task["documentVersionId"]
     assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
-    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx"]
     assert [result["ruleId"] for result in task["results"]] == [
         rule.ruleId for rule in TEMPLATE_RULE_CATALOG.rules
     ]
@@ -92,21 +92,10 @@ def test_case_01_uses_mock_results_without_calling_qwen(tmp_path, monkeypatch):
         json={"status": "supplemented", "reason": incomplete[0]["suggestedQuestion"], "actorId": "test-operator"},
     )
     assert action.status_code == 200
-    with patch("app.review.review.run_template_review", new=AsyncMock(side_effect=AssertionError("mock follow-up must not call Qwen"))):
-        follow_up = client.post(
-            f"/api/v1/reviews/{task['id']}/issues/RISK-001/follow-up-answer",
-            json={
-                "question": incomplete[0]["suggestedQuestion"],
-                "answer": "转账前未收到银行或支付机构的风险提示。",
-                "actorId": "test-operator",
-            },
-        )
-    assert follow_up.status_code == 200
-    updated = follow_up.json()
-    assert updated["documentVersionId"] != task["documentVersionId"]
+    updated = client.get(f"/api/v1/reviews/{task['id']}").json()
     refreshed = next(result for result in updated["results"] if result["ruleId"] == "RISK-001")
-    assert refreshed["status"] == "covered"
-    assert refreshed["manualDecision"]["status"] == "resolved"
+    assert refreshed["status"] == "incomplete"
+    assert refreshed["manualDecision"]["status"] == "supplemented"
 
 
 def test_case_02_uses_qwen_review(tmp_path, monkeypatch):

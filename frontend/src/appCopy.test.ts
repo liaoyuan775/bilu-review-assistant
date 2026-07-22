@@ -23,7 +23,7 @@ describe("police-facing product copy", () => {
     expect(templateReviewSource).toContain('not_applicable: { label: "规则不适用"');
     expect(appSource).toContain('not_applicable: { label: "规则不适用"');
     expect(appSource).toContain("<span>规则不适用 <strong>{counts.not_applicable}</strong></span>");
-    expect(reviewActionSource).toContain('label: "确认不适用"');
+    expect(reviewActionSource).not.toContain('label: "确认不适用"');
     expect(reviewActionSource).toContain('not_applicable: "人工确认不适用"');
   });
 
@@ -31,7 +31,8 @@ describe("police-facing product copy", () => {
     for (const label of ["待处理问题", "已闭环问题", "高风险", "中风险", "低风险"]) {
       expect(templateReviewSource).toContain(label);
     }
-    expect(templateReviewStateSource).toContain("补问中");
+    expect(templateReviewStateSource).toContain('return "已处理"');
+    expect(templateReviewStateSource).toContain('return "待判断"');
   });
 
   it("exposes guarded demo-only pass actions", () => {

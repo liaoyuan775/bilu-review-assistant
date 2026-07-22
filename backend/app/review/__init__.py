@@ -7,7 +7,7 @@ review 包 — 审查业务逻辑层
 
 模块清单：
   review.py     审查任务生命周期编排（核心编排器）
-  extraction.py 7 域并发模型事实抽取与结果校验
+  extraction.py 6 域并发模型事实抽取与结果校验
   rules.py      34 条版本化确定性规则计算引擎
   victim.py     非模型的正则被害人信息提取
   mock.py       演示模式下使用的模拟审查结果

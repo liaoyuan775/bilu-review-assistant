@@ -51,13 +51,8 @@ const task = (overrides: Partial<ReviewTask> = {}): ReviewTask => ({
   results: [],
   failedDomains: [],
   acknowledgedWarnings: [],
-  artifacts: [
-    { id: "a1", type: "review_pdf", filename: "review.pdf", sha256: "a".repeat(64), sizeBytes: 1 },
-    { id: "a2", type: "follow_up_docx", filename: "follow-up.docx", sha256: "b".repeat(64), sizeBytes: 1 },
-    { id: "a3", type: "structured_json", filename: "review.json", sha256: "c".repeat(64), sizeBytes: 1 },
-    { id: "a4", type: "archive_manifest", filename: "manifest.json", sha256: "d".repeat(64), sizeBytes: 1 },
-  ],
-  requiredArtifacts: ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"],
+  artifacts: [],
+  requiredArtifacts: [],
   reviewStatus: "in_review" as ReviewStatus,
   archivedAt: null,
   createdAt: "2026-07-18T00:00:00Z",
@@ -122,7 +117,7 @@ describe("template review state", () => {
 
   it("does not add a processing label to already covered rules", () => {
     expect(processingLabel(result("OK", "CASE", "covered"))).toBeNull();
-    expect(processingLabel(result("MISSING", "CASE", "missing"))).toBe("待处理");
+    expect(processingLabel(result("MISSING", "CASE", "missing"))).toBe("待判断");
   });
 
   it("selects the next pending actionable issue and wraps", () => {
@@ -137,7 +132,7 @@ describe("template review state", () => {
     expect(nextActionableIssueId(results, "D")).toBe("B");
   });
 
-  it("reports archive gates for failed domains, warnings, artifacts, and high-risk issues", () => {
+  it("reports archive gates for failed domains, warnings, and pending issues", () => {
     const blocked = task({
       failedDomains: ["case_timeline"],
       document: {
@@ -159,14 +154,13 @@ describe("template review state", () => {
     expect(archiveBlockers(blocked).map((item) => item.code)).toEqual([
       "failed_domains",
       "unresolved_warnings",
-      "missing_artifacts",
       "unresolved_issues",
     ]);
   });
 
   it.each([
     ["low", "pending"],
-    ["medium", "supplemented"],
+    ["medium", "confirmed"],
     ["high", "confirmed"],
   ] as const)("blocks archive for unresolved %s-risk issues in %s", (severity, manualStatus) => {
     const blockers = archiveBlockers(task({
@@ -175,16 +169,16 @@ describe("template review state", () => {
 
     expect(blockers).toContainEqual({
       code: "unresolved_issues",
-      label: "未闭环问题",
+      label: "待判断问题",
       count: 1,
     });
   });
 
   it.each([
-    ["resolved", "已人工核对。"],
-    ["not_applicable", "本案不涉及该场景。"],
-    ["ignored", "经确认不再处理。"],
-  ] as const)("allows archive for terminal decision %s with a reason", (manualStatus, reason) => {
+    ["supplemented", ""],
+    ["resolved", ""],
+    ["ignored", ""],
+  ] as const)("allows archive for every manual decision %s without a reason", (manualStatus, reason) => {
     const item = result("CASE-001", "CASE", "missing", manualStatus, "low");
     item.manualDecision.reason = reason;
 

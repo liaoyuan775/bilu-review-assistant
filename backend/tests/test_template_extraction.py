@@ -134,7 +134,7 @@ def test_structured_payload_does_not_fallback_for_generic_bad_schema_request(mon
     assert len(requests) == 1
 
 
-def test_domain_response_that_violates_schema_is_not_retried(monkeypatch):
+def test_domain_response_that_violates_schema_is_retried_once(monkeypatch):
     document = _document()
     request = AsyncMock(return_value={"unexpected": {"value": "ignored schema"}})
     monkeypatch.setattr(extraction_mod, "request_structured_payload", request)
@@ -147,7 +147,7 @@ def test_domain_response_that_violates_schema_is_not_retried(monkeypatch):
             domains=("header_procedure",),
         ))
 
-    assert request.await_count == 1
+    assert request.await_count == 2
     assert error.value.domain_errors["header_procedure"] == "structured_output_not_enforced"
 
 
@@ -670,7 +670,7 @@ def test_duplicate_entity_id_returns_an_actionable_correction_hint():
     assert "实体 ID 在整个业务域内必须唯一" in (error.value.correction_hint or "")
 
 
-def test_repeat_entity_count_must_match_the_declared_count_fact():
+def test_repeat_entity_count_mismatch_is_preserved_for_rule_evaluation():
     document = _document()
     extraction = _missing_domain("online_money")
     extraction.facts["online_money.used"] = ExtractedFact(
@@ -684,10 +684,31 @@ def test_repeat_entity_count_must_match_the_declared_count_fact():
         ExtractedEntity(id="transfer-2", entityType="transfers", fields={}),
     ]
 
-    with pytest.raises(AppError) as error:
-        extraction_mod.validate_domain_extraction(document, "online_money", extraction)
+    validated = extraction_mod.validate_domain_extraction(
+        document, "online_money", extraction,
+    )
 
-    assert "online_money.transfer_count" in (error.value.correction_hint or "")
+    assert len(validated.entities["transfers"]) == 2
+
+
+def test_ambiguous_repeat_count_keeps_known_entities_for_rule_evaluation():
+    document = _document()
+    extraction = _missing_domain("online_money")
+    extraction.facts["online_money.used"] = ExtractedFact(
+        value=True, clarity="clear", evidenceAnchorIds=["a1"],
+    )
+    extraction.facts["online_money.transfer_count"] = ExtractedFact(
+        value=None, clarity="unknown", evidenceAnchorIds=[],
+    )
+    extraction.entities["transfers"] = [
+        ExtractedEntity(id="transfer-1", entityType="transfers", fields={}),
+    ]
+
+    validated = extraction_mod.validate_domain_extraction(
+        document, "online_money", extraction,
+    )
+
+    assert [entity.id for entity in validated.entities["transfers"]] == ["transfer-1"]
 
 
 def test_domain_entities_require_clear_positive_applicability():
@@ -796,11 +817,41 @@ def test_schema_failure_retries_domain_once_with_validation_feedback(monkeypatch
     assert request.await_args_list[1].args[3] is error
 
 
+def test_review_keeps_results_when_one_domain_exhausts_schema_retries(monkeypatch):
+    partial = _missing_domain("case_timeline")
+    failure = extraction_mod.TemplateDomainFailure(
+        partial_extraction=partial,
+        failed_domains=["contact_channels"],
+        domain_errors={"contact_channels": "invalid_model_schema"},
+        domain_error_details={"contact_channels": "contact.switch_count must be an integer"},
+    )
+    monkeypatch.setattr(
+        extraction_mod,
+        "extract_template_facts",
+        AsyncMock(side_effect=failure),
+    )
+    rule = _rule("contact.initial_channel").model_copy(update={
+        "ruleId": "LEAD-001",
+        "group": "LEAD",
+    })
+
+    outcome = asyncio.run(extraction_mod.run_template_review(
+        _document(),
+        rules=[rule],
+        domains=("contact_channels",),
+    ))
+
+    assert outcome.failed_domains == ["contact_channels"]
+    assert outcome.domain_errors == {"contact_channels": "invalid_model_schema"}
+    assert outcome.results[0].status == RuleStatus.NEEDS_MANUAL_REVIEW
+    assert outcome.results[0].missingFacts == ["contact.initial_channel"]
+
+
 def test_configured_schema_retries_control_attempt_count(monkeypatch):
     document = _document()
     schema_error = AppError(
-        "invalid_model_response",
-        "模型域结果无效。",
+        "structured_output_not_enforced",
+        "模型未执行 JSON Schema。",
         502,
         retry_strategy="schema",
         correction_hint="必须返回有效 JSON。",

@@ -17,9 +17,7 @@
     "privacy.disclosure_time": {"description": "个人信息泄露时间", "valueSchema": {"type": ["string", "null"]}},
     "timeline.first_contact_at": {"description": "最早联系时间", "valueSchema": {"type": ["string", "null"]}},
     "timeline.incident_at": {"description": "案发时间", "valueSchema": {"type": ["string", "null"]}},
-    "timeline.incident_community": {"description": "案发社区或小区", "valueSchema": {"type": ["string", "null"]}},
-    "timeline.incident_district": {"description": "案发区县", "valueSchema": {"type": ["string", "null"]}},
-    "timeline.incident_street": {"description": "案发街道或道路", "valueSchema": {"type": ["string", "null"]}}
+    "timeline.incident_location": {"description": "案发地点，尽可能保留原文中的区县、街道、社区或小区等完整地址", "valueSchema": {"type": ["string", "null"]}}
   },
   "entities": {}
 }

@@ -49,7 +49,7 @@
     {
       "ruleId": "CASE-001", "name": "报案原因与案件概述", "group": "CASE",
       "sourceParagraphs": [20], "sourceMarker": "p020-q1", "sourceKind": "question", "scope": "common",
-      "requiredFields": ["case.report_reason", "case.fraud_method", "timeline.incident_district", "contact.initial_channel", "money.gross_loss"],
+      "requiredFields": ["case.report_reason", "case.fraud_method", "timeline.incident_location", "contact.initial_channel", "money.gross_loss"],
       "questionPatterns": ["报案|报警", "何事|原因|案件"],
       "suggestedQuestion": "请概述报案原因、诈骗手法、案发地、引流和联络方式及被骗总金额。", "severity": "high"
     },
@@ -168,7 +168,7 @@
     {
       "ruleId": "TIME-001", "name": "案发时间与详细地址", "group": "TIME",
       "sourceParagraphs": [50], "sourceMarker": "p050-q1", "sourceKind": "question", "scope": "common",
-      "requiredFields": ["timeline.incident_at", "timeline.incident_district", "timeline.incident_street", "timeline.incident_community"],
+      "requiredFields": ["timeline.incident_at", "timeline.incident_location"],
       "questionPatterns": ["案发时间|发生时间", "地址|地点"],
       "suggestedQuestion": "请明确案发时间和具体到县市区、乡镇街道、社区的地址。", "severity": "high"
     },

@@ -11,7 +11,6 @@ import {
   CircleSlash2,
   Clock3,
   FileText,
-  FileDown,
   ListChecks,
   RefreshCw,
   Search,
@@ -21,7 +20,6 @@ import {
 
 import { artifactDownloadUrl } from "./api";
 import { DocumentEvidencePane } from "./DocumentEvidencePane";
-import { FollowUpPanel } from "./FollowUpPanel";
 import {
   displayDomainLabel,
   displayEntityTypeLabel,
@@ -75,8 +73,6 @@ interface TemplateReviewViewProps {
   onSelectRule: (ruleId: string | null) => void;
   onBack: () => void;
   onAction: (ruleId: string, status: ManualStatus, reason?: string) => Promise<boolean>;
-  onFollowUp: (ruleId: string, question: string, answer: string) => Promise<void>;
-  onGenerateArtifacts: () => Promise<void>;
   onDemoPassAll: () => Promise<void>;
   onArchive: () => Promise<void>;
   onShowReport: () => void;
@@ -92,8 +88,6 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
     onSelectRule,
     onBack,
     onAction,
-    onFollowUp,
-    onGenerateArtifacts,
     onDemoPassAll,
     onArchive,
     onShowReport,
@@ -104,12 +98,9 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
   const [filter, setFilter] = useState<"all" | "actionable" | RuleStatus>("all");
   const [search, setSearch] = useState("");
   const [documentCollapsed, setDocumentCollapsed] = useState(false);
-  const [followUpRuleId, setFollowUpRuleId] = useState<string | null>(null);
   const [decisionReason, setDecisionReason] = useState("");
-  const [generatingArtifacts, setGeneratingArtifacts] = useState(false);
   const [demoPassing, setDemoPassing] = useState(false);
   const selected = task.results.find((item) => item.ruleId === selectedRuleId) ?? null;
-  const followUpItem = task.results.find((item) => item.ruleId === followUpRuleId) ?? null;
   const counts = countTemplateStatuses(task.results);
   const blockers = archiveBlockers(task);
   const unresolvedWarnings = task.document?.warnings.filter(
@@ -127,15 +118,9 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
   }, [filter, search, task.results]);
   const sections = sectionTemplateResults(visible);
   const readOnly = task.reviewStatus === "archived";
-  const missingArtifacts = blockers.some((blocker) => blocker.code === "missing_artifacts");
   const entities = readEntities(task.extractionPayload);
 
   const act = async (item: ReviewResult, status: ManualStatus) => {
-    const requiresReason = status === "ignored" || status === "not_applicable" || status === "resolved";
-    if (requiresReason && !decisionReason.trim()) {
-      notify("请填写处理依据");
-      return;
-    }
     if (await onAction(item.ruleId, status, decisionReason.trim())) {
       setDecisionReason("");
       const next = nextActionableIssueId(task.results, item.ruleId);
@@ -167,22 +152,6 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
               }}
             >
               <Check size={15} />{demoPassing ? "正在处理" : "一键测试通过"}
-            </button>
-          )}
-          {!readOnly && missingArtifacts && (
-            <button
-              className="artifact-link artifact-generate"
-              disabled={generatingArtifacts}
-              onClick={async () => {
-                setGeneratingArtifacts(true);
-                try {
-                  await onGenerateArtifacts();
-                } finally {
-                  setGeneratingArtifacts(false);
-                }
-              }}
-            >
-              <FileDown size={15} />{generatingArtifacts ? "正在生成" : "生成归档产物"}
             </button>
           )}
           {task.artifacts.map((artifact) => (
@@ -288,14 +257,14 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
                         )}
                         {!readOnly && actionPolicy && (
                           <div className="issue-actions">
-                            <textarea value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="选择接受现有材料、不适用或不处理时，必须填写处理依据" />
+                            <textarea value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="可选：记录本次人工判断说明" />
                             <div className="issue-action-buttons">
                               <button className="primary-review-action" onClick={async () => {
-                                if (await onAction(item.ruleId, actionPolicy.primary.status, item.suggestedQuestion)) setFollowUpRuleId(item.ruleId);
+                                if (await onAction(item.ruleId, actionPolicy.primary.status, decisionReason.trim())) setDecisionReason("");
                               }}><ListChecks size={14} />{actionPolicy.primary.label}</button>
                               {actionPolicy.secondary.map((action) => (
                                 <button key={action.status} onClick={() => act(item, action.status)}>
-                                  {action.status === "not_applicable" ? <CircleSlash2 size={14} /> : action.status === "resolved" ? <Check size={14} /> : null}
+                                  {action.status === "resolved" ? <Check size={14} /> : null}
                                   {action.label}
                                 </button>
                               ))}
@@ -320,13 +289,6 @@ export function TemplateReviewView(props: TemplateReviewViewProps) {
         </section>
       </div>
 
-      <FollowUpPanel
-        item={followUpItem}
-        open={Boolean(followUpRuleId)}
-        readOnly={readOnly}
-        onClose={() => setFollowUpRuleId(null)}
-        onSubmit={onFollowUp}
-      />
     </section>
   );
 }

@@ -169,14 +169,14 @@ def test_health_and_rules():
     assert review_response["content"]["application/json"]["schema"]["$ref"].endswith("/ReviewTask")
 
 
-def test_demo_review_decisions_block_archive_until_artifacts_exist():
+def test_demo_review_archives_after_each_issue_has_a_manual_decision():
     created = client.post("/api/v1/reviews/demos/case-01-baseline", json={})
     assert created.status_code == 202
     task_id = created.json()["taskId"]
     task = client.get(f"/api/v1/reviews/{task_id}").json()
     assert task["status"] == "completed"
     assert len(task["results"]) == len(TEMPLATE_RULES)
-    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx"]
     assert [artifact["type"] for artifact in task["artifacts"]] == ["original"]
     blocked = client.post(f"/api/v1/reviews/{task_id}/complete")
     assert blocked.status_code == 409
@@ -189,9 +189,8 @@ def test_demo_review_decisions_block_archive_until_artifacts_exist():
         )
         assert saved.status_code == 200
 
-    still_blocked = client.post(f"/api/v1/reviews/{task_id}/complete")
-    assert still_blocked.status_code == 409
-    assert still_blocked.json()["error"]["code"] == "archive_missing_artifacts"
+    archived = client.post(f"/api/v1/reviews/{task_id}/complete")
+    assert archived.status_code == 200
 
     follow_ups = client.get(f"/api/v1/reviews/{task_id}/follow-ups")
     assert follow_ups.status_code == 200
@@ -199,13 +198,13 @@ def test_demo_review_decisions_block_archive_until_artifacts_exist():
 
     report = client.get(f"/api/v1/reviews/{task_id}/report-data")
     assert report.status_code == 200
-    assert report.json()["reviewStatus"] == "in_review"
+    assert report.json()["reviewStatus"] == "archived"
     assert report.json()["victimProfile"] == task["victimProfile"]
     assert len(report.json()["results"]) == len(TEMPLATE_RULES)
 
     history = client.get("/api/v1/reviews")
     assert history.status_code == 200
-    assert any(item["id"] == task_id and item["reviewStatus"] == "in_review" for item in history.json()["reviews"])
+    assert any(item["id"] == task_id and item["reviewStatus"] == "archived" for item in history.json()["reviews"])
 
 
 def test_demo_task_records_demo_id():
@@ -229,9 +228,7 @@ def test_bulk_demo_pass_generates_artifacts_and_leaves_archive_ready():
     assert set(task["acknowledgedWarnings"]) == {
         warning["code"] for warning in task["document"]["warnings"]
     }
-    assert {artifact["type"] for artifact in task["artifacts"]} >= {
-        "review_pdf", "follow_up_docx", "structured_json", "archive_manifest",
-    }
+    assert {artifact["type"] for artifact in task["artifacts"]} >= {"review_pdf", "follow_up_docx"}
     archived = client.post(f"/api/v1/reviews/{created['taskId']}/archive")
     assert archived.status_code == 200
 

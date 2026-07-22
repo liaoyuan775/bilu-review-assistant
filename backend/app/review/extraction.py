@@ -36,7 +36,7 @@ from hashlib import sha256
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from time import perf_counter
 
 import httpx
@@ -120,6 +120,54 @@ def _domain_for_path(path: str) -> str:
         raise ValueError(f"Unknown template fact path: {path}") from exc
 
 
+# These failures mean the provider returned an unusable structured payload. The
+# successful domains still contain usable facts, so the affected rules can be
+# shown for manual review instead of discarding the whole document.
+_DEGRADABLE_DOMAIN_ERRORS = {
+    "invalid_model_schema",
+    "invalid_model_evidence",
+    "invalid_model_response",
+    "structured_output_not_enforced",
+}
+
+
+def _rule_domains(rule: TemplateRule) -> set[str]:
+    paths = [*rule.requiredFields, *rule.advisoryFields]
+    if rule.appliesWhen is not None:
+        paths.append(rule.appliesWhen.path)
+    if rule.repeatEntity is not None and rule.repeatEntity.countPath:
+        paths.append(rule.repeatEntity.countPath)
+    for check in rule.consistencyChecks:
+        paths.extend(
+            path
+            for path in (
+                check.totalPath,
+                check.countPath,
+                check.leftPath,
+                check.rightPath,
+                check.resultPath,
+                check.earlierPath,
+                check.laterPath,
+            )
+            if path
+        )
+    return {_domain_for_path(path) for path in paths if path in _PATH_DOMAINS}
+
+
+def _partial_extraction_after_schema_failure(error: TemplateDomainFailure) -> CaseExtraction:
+    codes = set(error.domain_errors.values())
+    if not codes or not codes.issubset(_DEGRADABLE_DOMAIN_ERRORS):
+        raise error
+    extraction = error.partial_extraction.model_copy(deep=True)
+    extraction.failedDomains = list(dict.fromkeys([*extraction.failedDomains, *error.failed_domains]))
+    for domain in error.failed_domains:
+        for path in DOMAIN_FACT_PATHS[domain]:
+            extraction.facts.setdefault(path, ExtractedFact())
+        for entity_type in DOMAIN_ENTITY_FIELDS[domain]:
+            extraction.entities.setdefault(entity_type, [])
+    return extraction
+
+
 @dataclass
 class TemplateReviewOutcome:
     """一次完整的模板审查结果。
@@ -132,6 +180,9 @@ class TemplateReviewOutcome:
     extraction: CaseExtraction
     issues: list[TemplateReviewIssue]
     results: list[ReviewResult]
+    failed_domains: list[str] = dataclass_field(default_factory=list)
+    domain_errors: dict[str, str] = dataclass_field(default_factory=dict)
+    domain_error_details: dict[str, str] = dataclass_field(default_factory=dict)
 
 
 def template_extraction_schema(
@@ -474,14 +525,16 @@ def validate_domain_extraction(
                 expected_count = int(count_fact.value)
             except (TypeError, ValueError):
                 expected_count = None
-        if expected_count != len(entities):
-            raise AppError(
-                "invalid_model_schema",
-                "重复实体数量与笔录中的计数字段不一致。",
-                502,
-                retry_strategy="schema",
-                field=entity_type,
-                correction_hint=f"{entity_type} 数组长度必须与 {count_path} 的明确数值完全一致。",
+        if expected_count is not None and expected_count != len(entities):
+            # 数量冲突属于业务事实矛盾，由规则引擎呈现，不能让整个业务域失败。
+            log_event(
+                logging.WARNING,
+                "template_extraction.entity_count_mismatch",
+                domain=domain,
+                entity_type=entity_type,
+                count_path=count_path,
+                expected_count=expected_count,
+                actual_count=len(entities),
             )
     return extraction
 
@@ -534,6 +587,7 @@ async def _request_domain(
             "structured_output_not_enforced",
             "模型接口接受了 JSON Schema 参数，但返回结果未执行该 Schema。",
             502,
+            retry_strategy="schema",
             field="payload",
             correction_hint="structured_output_not_enforced",
         )
@@ -942,12 +996,21 @@ async def run_template_review(
     """
     timings = group_timings if group_timings is not None else {}
     selected_rules = rules or TEMPLATE_RULES
-    refreshed = await extract_template_facts(
-        document,
-        timings,
-        domains=domains,
-        max_concurrency=max_concurrency,
-    )
+    failed_domains: list[str] = []
+    domain_errors: dict[str, str] = {}
+    domain_error_details: dict[str, str] = {}
+    try:
+        refreshed = await extract_template_facts(
+            document,
+            timings,
+            domains=domains,
+            max_concurrency=max_concurrency,
+        )
+    except TemplateDomainFailure as error:
+        refreshed = _partial_extraction_after_schema_failure(error)
+        failed_domains = error.failed_domains
+        domain_errors = error.domain_errors
+        domain_error_details = error.domain_error_details
     extraction = (
         _merge_refreshed_domains(base_extraction, refreshed, domains)
         if base_extraction is not None
@@ -956,6 +1019,13 @@ async def run_template_review(
     question_states, question_anchors = _question_states(document, selected_rules)
     issues = evaluate_template_rules(extraction, selected_rules, question_states)
     rules_by_id = {rule.ruleId: rule for rule in selected_rules}
+    if failed_domains:
+        failed = set(failed_domains)
+        for issue in issues:
+            affected = _rule_domains(rules_by_id[issue.ruleId]) & failed
+            if affected:
+                issue.status = RuleStatus.NEEDS_MANUAL_REVIEW
+                issue.reason = f"{', '.join(sorted(affected))} 业务域抽取未完成，需要人工核对原文。"
     for issue in issues:
         if rules_by_id[issue.ruleId].answerPresenceSatisfies:
             for anchor in question_anchors.get(issue.ruleId, []):
@@ -977,7 +1047,14 @@ async def run_template_review(
         [result.model_dump(mode="json") for result in results],
         rules=len(results),
     )
-    return TemplateReviewOutcome(extraction=extraction, issues=issues, results=results)
+    return TemplateReviewOutcome(
+        extraction=extraction,
+        issues=issues,
+        results=results,
+        failed_domains=failed_domains,
+        domain_errors=domain_errors,
+        domain_error_details=domain_error_details,
+    )
 
 
 async def review_template_document(

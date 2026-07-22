@@ -27,7 +27,6 @@ from app.core.models import (
     DecisionResponse,
     DemoListResponse,
     FollowUpListResponse,
-    FollowUpAnswerRequest,
     HealthResponse,
     ReportData,
     ReviewListResponse,
@@ -56,7 +55,6 @@ from app.api.routes import (
     review_follow_ups,
     review_report_data,
     save_decision,
-    save_follow_up_answer,
     save_issue_action,
 )
 
@@ -93,7 +91,6 @@ app.get("/api/v1/reviews/{task_id}/versions")(list_review_versions)
 
 # ── 人工操作与处置 ──────────────────────────────────────────
 app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/actions", response_model=DecisionResponse)(save_issue_action)
-app.post("/api/v1/reviews/{task_id}/issues/{rule_id}/follow-up-answer", response_model=ReviewTask)(save_follow_up_answer)
 app.post("/api/v1/reviews/{task_id}/domains/{domain}/retry", response_model=ReviewTask)(retry_review_domain)
 app.post("/api/v1/reviews/{task_id}/warnings/acknowledge", response_model=ReviewTask)(acknowledge_review_warnings)
 app.post("/api/v1/reviews/{task_id}/demo-pass", response_model=ReviewTask)(demo_pass_review)

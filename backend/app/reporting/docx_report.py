@@ -137,16 +137,10 @@ def build_follow_up_docx(task: ReviewTask, manual_events: list[dict]) -> bytes:
         _set_cell_text(row.cells[2], right_key, bold=True)
         _set_cell_text(row.cells[3], right_value)
 
-    document.add_heading("补问与处置事项", level=1)
-    actionable = {
-        RuleStatus.MISSING,
-        RuleStatus.INCOMPLETE,
-        RuleStatus.INCONSISTENT,
-        RuleStatus.NEEDS_MANUAL_REVIEW,
-    }
+    document.add_heading("补问事项", level=1)
     selected = sort_review_results([
         item for item in task.results
-        if item.status in actionable or item.manualDecision.status.value != "pending"
+        if item.manualDecision.status.value == "supplemented"
     ])
     if not selected:
         document.add_paragraph("当前没有需要补问或记录处置依据的事项。")
@@ -165,7 +159,7 @@ def build_follow_up_docx(task: ReviewTask, manual_events: list[dict]) -> bytes:
         if item.suggestedQuestion:
             document.add_paragraph(f"建议补问：{item.suggestedQuestion}")
         decision = item.manualDecision
-        document.add_paragraph(f"人工处置：{manual_status_label(decision.status)}；依据：{decision.reason or '未填写'}")
+        document.add_paragraph(f"人工判断：{manual_status_label(decision.status)}；说明：{decision.reason or '未填写'}")
 
     document.add_heading("人工操作记录", level=1)
     if not manual_events:

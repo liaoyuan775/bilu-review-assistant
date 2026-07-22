@@ -103,17 +103,6 @@ export const submitIssueAction = async (
   return payload.result;
 };
 
-export const submitFollowUpAnswer = async (
-  taskId: string,
-  ruleId: string,
-  question: string,
-  answer: string,
-) => parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${taskId}/issues/${ruleId}/follow-up-answer`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ question, answer, actorId: "local-operator" }),
-}));
-
 export const retryReviewDomain = async (taskId: string, domain: string) =>
   parseResponse<ReviewTask>(await fetch(`/api/v1/reviews/${taskId}/domains/${encodeURIComponent(domain)}/retry`, {
     method: "POST",

@@ -34,10 +34,10 @@ const result = (
 
 describe("review action policy", () => {
   it.each([
-    ["missing", "补问并重审", ["not_applicable", "ignored"]],
-    ["incomplete", "补问并重审", ["resolved", "not_applicable", "ignored"]],
-    ["inconsistent", "核实并重审", ["resolved", "not_applicable", "ignored"]],
-    ["needs_manual_review", "确认适用并补问", ["not_applicable", "ignored"]],
+    ["missing", "加入补问清单", ["resolved", "ignored"]],
+    ["incomplete", "加入补问清单", ["resolved", "ignored"]],
+    ["inconsistent", "加入补问清单", ["resolved", "ignored"]],
+    ["needs_manual_review", "加入补问清单", ["resolved", "ignored"]],
   ] as const)("provides status-specific actions for %s", (status, primaryLabel, secondaryStatuses) => {
     const policy = reviewActionPolicy(status);
 
@@ -50,20 +50,17 @@ describe("review action policy", () => {
     expect(reviewActionPolicy("not_applicable")).toBeNull();
   });
 
-  it("uses precise resolution labels for incomplete and inconsistent results", () => {
-    expect(reviewActionPolicy("incomplete")?.secondary[0].label).toBe("接受现有回答");
-    expect(reviewActionPolicy("inconsistent")?.secondary[0].label).toBe("确认以现有材料为准");
-    expect(reviewActionPolicy("missing")?.secondary[1].label).toBe("不处理并说明");
+  it("uses plain-language labels for secondary review decisions", () => {
+    expect(reviewActionPolicy("incomplete")?.secondary[0].label).toBe("当前回答足够");
+    expect(reviewActionPolicy("missing")?.secondary[1].label).toBe("忽略此提示");
   });
 
   it.each([
     ["pending", "", false],
     ["confirmed", "", false],
-    ["supplemented", "请补充说明。", false],
-    ["resolved", "人工核对后现有回答足够。", true],
-    ["not_applicable", "本案未发生该场景。", true],
-    ["ignored", "经负责人确认不再处理。", true],
-    ["ignored", "", false],
+    ["supplemented", "", true],
+    ["resolved", "", true],
+    ["ignored", "", true],
   ] as const)("evaluates %s closure consistently", (manualStatus, reason, closed) => {
     expect(isManualDecisionClosed(result("incomplete", manualStatus, reason))).toBe(closed);
   });

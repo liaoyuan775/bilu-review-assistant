@@ -672,6 +672,16 @@ stateDiagram-v2
 
 ## 8. Validation rule matrix
 
+### 8.1 2026-07-21 规则与失败边界审计
+
+当前目录包含 34 条规则：23 条通用规则、9 条条件规则、1 条结构规则和 1 条重复实体规则。规则不匹配只产生 `missing`、`incomplete`、`not_applicable`、`needs_manual_review`、`inconsistent` 或 `covered` 状态，不直接令上传失败。`[代码确认]` `backend/template_rules.json`、`backend/app/review/rules.py::evaluate_template_rules`
+
+模型域仍使用严格 JSON Schema，并按 `QWEN_SCHEMA_RETRIES` 做域级结构重试。重试耗尽后不接受 plain JSON，也不把无效响应当成事实；系统保留其他成功域，将失败域相关规则标记为 `needs_manual_review`。网络、认证、文件解析等基础能力错误仍令任务失败。`[代码确认]` `backend/app/review/extraction.py::run_template_review`、`backend/app/review/review.py::_persist_outcome`
+
+逐笔实体的明确数量不一致现在作为 `inconsistent` 交给规则引擎显示，不再升级为域级 Schema 失败；流水号、完整地址等 `advisoryFields` 只提示、不阻断。`[代码确认]` `backend/app/review/extraction.py::validate_domain_extraction`、`backend/template_rules.json`
+
+本次聚焦验证：`python -m pytest -q tests/test_template_extraction.py tests/test_template_rule_engine.py tests/test_review_lifecycle.py`，结果为 `95 passed`，另有一条既有 `pytest-asyncio` 配置弃用警告。`[已执行验证]`
+
 | Rule | Source | Owner/layer | Trigger | Pass condition | Failure/result | Error surface | Test evidence | Human check |
 |---|---|---|---|---|---|---|---|---|
 | 文件总大小 ≤20 MB | `config.py` | API + parser | 每次上传/解析 | 字节数不超过限制 | 拒绝 | 413 `file_too_large` | API tests（相关全套未单列本轮） | 反向代理是否也允许 20 MB |

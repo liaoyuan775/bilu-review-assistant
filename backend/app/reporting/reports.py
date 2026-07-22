@@ -231,7 +231,22 @@ def build_review_pdf(task: ReviewTask, payload: dict) -> bytes:
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
-    story.extend([count_table, Spacer(1, 5 * mm), Paragraph("逐项审查与人工处置", heading)])
+    story.extend([count_table, Spacer(1, 5 * mm), Paragraph("人工处理汇总", heading)])
+    handled = [
+        item for item in sort_review_results(task.results)
+        if item.manualDecision.status.value != "pending"
+    ]
+    if not handled:
+        story.append(Paragraph("暂无人工处理记录。", body))
+    for item in handled:
+        decision = item.manualDecision
+        story.append(Paragraph(
+            f"<b>{escape(item.ruleId)} {escape(item.ruleName)}</b>　"
+            f"{manual_status_label(decision.status)}　"
+            f"处理理由：{_paragraph_text(decision.reason or '未填写')}",
+            body,
+        ))
+    story.extend([Spacer(1, 5 * mm), Paragraph("逐项审查与人工处置", heading)])
     for index, item in enumerate(sort_review_results(task.results), start=1):
         story.append(Paragraph(
             f"<b>{index}. {escape(item.ruleId)} {escape(item.ruleName)}</b>　{_STATUS_LABELS[item.status.value]}　{severity_label(item.severity)}风险",
@@ -305,7 +320,6 @@ def generate_review_artifacts(task_id: str) -> ReviewTask:
         raise AppError("task_not_completed", "审查尚未完成，不能生成归档产物。", 409)
     snapshot = get_audit_snapshot(task.id)
     payload = build_structured_report(task, snapshot)
-    structured_json = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
     docx = build_follow_up_docx(task, payload["manualEvents"])
     pdf = build_review_pdf(task, payload)
     stem = Path(task.document.name).stem
@@ -315,29 +329,12 @@ def generate_review_artifacts(task_id: str) -> ReviewTask:
     generated = [
         _save_record(task, "review_pdf", f"{stem}-审查复核报告.pdf", pdf),
         _save_record(task, "follow_up_docx", f"{stem}-补问工作清单.docx", docx),
-        _save_record(task, "structured_json", f"{stem}-结构化审查.json", structured_json),
     ]
-    listed = [*current, *generated]
-    manifest_payload = {
-        "schemaVersion": "template-review-archive-v1",
-        "taskId": task.id,
-        "documentVersionId": task.documentVersionId,
-        "generatedAt": now_iso(),
-        "versions": {"rule": TEMPLATE_RULE_CATALOG.version, "model": _model_version(task), "parser": PARSER_VERSION},
-        "artifacts": [{
-            "type": item.type,
-            "filename": item.filename,
-            "sha256": item.sha256,
-            "sizeBytes": item.sizeBytes,
-        } for item in listed],
-    }
-    manifest_bytes = json.dumps(manifest_payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
-    manifest = _save_record(task, "archive_manifest", f"{stem}-归档清单.json", manifest_bytes)
     task.requiredArtifacts = list(GENERATED_REVIEW_ARTIFACT_TYPES)
-    task.artifacts = [*listed, manifest]
+    task.artifacts = [*current, *generated]
     return save_task_with_events(task, [{
         "issue_id": None,
         "event_type": "artifacts_generated",
         "actor_id": "local-operator",
-        "payload": {"documentVersionId": task.documentVersionId, "artifactIds": [item.id for item in generated] + [manifest.id]},
+        "payload": {"documentVersionId": task.documentVersionId, "artifactIds": [item.id for item in generated]},
     }])

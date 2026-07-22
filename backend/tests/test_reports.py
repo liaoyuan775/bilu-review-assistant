@@ -62,7 +62,7 @@ def _ready_demo(tmp_path, monkeypatch) -> str:
     task_id = created.json()["taskId"]
     action = client.post(
         f"/api/v1/reviews/{task_id}/issues/RISK-001/actions",
-        json={"status": "resolved", "reason": "已记录脱敏补问答案。", "actorId": "test-operator"},
+        json={"status": "supplemented", "reason": "需补充核实风险提示情况。", "actorId": "test-operator"},
     )
     assert action.status_code == 200
     return task_id
@@ -82,42 +82,24 @@ def _generate(task_id: str) -> tuple[dict, dict[str, bytes]]:
     return task, payloads
 
 
-def test_generate_endpoint_produces_hashed_report_bundle(tmp_path, monkeypatch):
+def test_generate_endpoint_produces_the_two_user_facing_reports(tmp_path, monkeypatch):
     task_id = _ready_demo(tmp_path, monkeypatch)
 
     task, payloads = _generate(task_id)
 
-    expected_types = {"review_pdf", "follow_up_docx", "structured_json", "archive_manifest"}
+    expected_types = {"review_pdf", "follow_up_docx"}
     assert set(payloads) == expected_types
-    assert task["requiredArtifacts"] == [
-        "review_pdf", "follow_up_docx", "structured_json", "archive_manifest",
-    ]
+    assert task["requiredArtifacts"] == ["review_pdf", "follow_up_docx"]
     summaries = {item["type"]: item for item in task["artifacts"]}
     assert all(sha256(payloads[kind]).hexdigest() == summaries[kind]["sha256"] for kind in expected_types)
+    assert summaries["follow_up_docx"]["filename"].endswith("-补问工作清单.docx")
 
-    manifest = json.loads(payloads["archive_manifest"])
-    assert manifest["taskId"] == task_id
-    assert manifest["documentVersionId"] == task["documentVersionId"]
-    assert manifest["versions"]["rule"]
-    assert manifest["versions"]["model"] == "mock-review-v1"
-    assert manifest["versions"]["parser"]
-    manifest_entries = {item["type"]: item for item in manifest["artifacts"]}
-    for kind in {"original", "review_pdf", "follow_up_docx", "structured_json"}:
-        assert manifest_entries[kind]["sha256"] == summaries[kind]["sha256"]
 
 
 def test_generated_documents_contain_review_evidence_and_page_fields(tmp_path, monkeypatch):
     task_id = _ready_demo(tmp_path, monkeypatch)
 
     task, payloads = _generate(task_id)
-
-    structured = json.loads(payloads["structured_json"])
-    assert structured["task"]["id"] == task_id
-    assert len(structured["results"]) == 34
-    risk = next(item for item in structured["results"] if item["ruleId"] == "RISK-001")
-    assert risk["manualDecision"]["status"] == "resolved"
-    assert risk["evidenceAnchorIds"]
-    assert any(event["eventType"] == "resolved" for event in structured["manualEvents"])
 
     docx = Document(BytesIO(payloads["follow_up_docx"]))
     assert round(docx.sections[0].page_width.cm, 1) == 21.0
@@ -126,7 +108,7 @@ def test_generated_documents_contain_review_evidence_and_page_fields(tmp_path, m
     assert "补问工作清单" in docx_text
     assert "RISK-001" in docx_text
     assert "多次转账风险提示" in docx_text
-    assert "人工处置：已解决" in docx_text
+    assert "人工判断：已加入补问清单" in docx_text
     assert "风险等级：高" in docx_text
     with ZipFile(BytesIO(payloads["follow_up_docx"])) as package:
         footer_xml = package.read("word/footer1.xml").decode("utf-8")
@@ -138,6 +120,9 @@ def test_generated_documents_contain_review_evidence_and_page_fields(tmp_path, m
     assert "询问笔录审查复核报告" in pdf_text
     assert "RISK-001" in pdf_text
     assert "快速模拟" in pdf_text
-    assert "已解决" in pdf_text
+    assert "已加入补问清单" in pdf_text
+    assert "人工处理汇总" in pdf_text
+    assert "需补充核实风险提示情况" in pdf_text
+    assert pdf_text.index("人工处理汇总") < pdf_text.index("逐项审查与人工处置")
     assert f"共 {pdf.page_count} 页" in pdf[-1].get_text()
     assert task["status"] == "completed"

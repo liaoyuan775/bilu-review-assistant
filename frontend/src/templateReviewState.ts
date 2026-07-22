@@ -84,8 +84,8 @@ export const countTemplateStatuses = (results: ReviewResult[]): Record<RuleStatu
 export const processingLabel = (item: ReviewResult): string | null => {
   if (item.status === "covered") return null;
   if (item.status === "not_applicable") return "自动判定";
-  if (isManualDecisionClosed(item)) return "已闭环";
-  return item.manualDecision.status === "supplemented" ? "补问中" : "待处理";
+  if (isManualDecisionClosed(item)) return "已处理";
+  return "待判断";
 };
 
 const pending = (result: ReviewResult) =>
@@ -102,7 +102,7 @@ export const nextActionableIssueId = (results: ReviewResult[], currentRuleId: st
 };
 
 export interface ArchiveBlocker {
-  code: "failed_domains" | "unresolved_warnings" | "missing_artifacts" | "unresolved_issues";
+  code: "failed_domains" | "unresolved_warnings" | "unresolved_issues";
   label: string;
   count: number;
 }
@@ -118,16 +118,11 @@ export const archiveBlockers = (task: ReviewTask): ArchiveBlocker[] => {
   if (unresolvedWarnings.length > 0) {
     blockers.push({ code: "unresolved_warnings", label: "未确认解析告警", count: unresolvedWarnings.length });
   }
-  const availableArtifacts = new Set(task.artifacts.map((artifact) => artifact.type));
-  const missingArtifacts = task.requiredArtifacts.filter((type) => !availableArtifacts.has(type));
-  if (missingArtifacts.length > 0) {
-    blockers.push({ code: "missing_artifacts", label: "待生成归档产物", count: missingArtifacts.length });
-  }
   const unresolvedIssues = task.results.filter((result) =>
     actionableStatuses.has(result.status) && !isManualDecisionClosed(result),
   );
   if (unresolvedIssues.length > 0) {
-    blockers.push({ code: "unresolved_issues", label: "未闭环问题", count: unresolvedIssues.length });
+    blockers.push({ code: "unresolved_issues", label: "待判断问题", count: unresolvedIssues.length });
   }
   return blockers;
 };

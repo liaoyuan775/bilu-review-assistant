@@ -28,9 +28,9 @@ _SEVERITY = {"high": "高", "medium": "中", "low": "低"}
 _MANUAL = {
     "pending": "待处置",
     "confirmed": "已确认问题",
-    "supplemented": "已加入补问",
-    "ignored": "已忽略",
-    "resolved": "已解决",
+    "supplemented": "已加入补问清单",
+    "ignored": "已忽略此提示",
+    "resolved": "当前回答足够",
     "not_applicable": "确认不适用",
 }
 _EVENT = {

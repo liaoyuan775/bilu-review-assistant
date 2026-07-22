@@ -40,8 +40,6 @@ _INVALID_FILENAME = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 GENERATED_REVIEW_ARTIFACT_TYPES = (
     "review_pdf",
     "follow_up_docx",
-    "structured_json",
-    "archive_manifest",
 )
 
 

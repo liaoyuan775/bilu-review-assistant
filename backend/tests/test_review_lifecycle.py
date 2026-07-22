@@ -39,7 +39,7 @@ from app.core.template_models import CaseExtraction, ExtractedFact, TemplateRevi
 from app.main import app
 
 
-REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx", "structured_json", "archive_manifest"]
+REQUIRED_ARTIFACTS = ["review_pdf", "follow_up_docx"]
 
 
 def _task() -> ReviewTask:
@@ -107,7 +107,6 @@ def _complete_extraction() -> CaseExtraction:
             lambda task: task.document.warnings.append(DocumentWarning(code="media_corrupt", message="测试告警")),
             "archive_unresolved_warnings",
         ),
-        (lambda task: task.artifacts.pop(), "archive_missing_artifacts"),
         (
             lambda task: task.results.__setitem__(0, task.results[0].model_copy(update={
                 "status": RuleStatus.MISSING,
@@ -140,10 +139,7 @@ def test_acknowledged_warning_and_resolved_high_risk_issue_can_archive():
 
 
 @pytest.mark.parametrize("severity", ["low", "medium", "high"])
-@pytest.mark.parametrize(
-    "manual_status",
-    [ManualStatus.PENDING, ManualStatus.SUPPLEMENTED, ManualStatus.CONFIRMED],
-)
+@pytest.mark.parametrize("manual_status", [ManualStatus.PENDING, ManualStatus.CONFIRMED])
 def test_every_unresolved_actionable_issue_blocks_archive(severity, manual_status):
     task = _task()
     task.results[0] = task.results[0].model_copy(update={
@@ -158,16 +154,13 @@ def test_every_unresolved_actionable_issue_blocks_archive(severity, manual_statu
     assert error.value.code == "archive_pending_issues"
 
 
-@pytest.mark.parametrize(
-    "manual_status",
-    [ManualStatus.RESOLVED, ManualStatus.NOT_APPLICABLE, ManualStatus.IGNORED],
-)
-def test_terminal_decisions_with_reason_allow_archive(manual_status):
+@pytest.mark.parametrize("manual_status", [ManualStatus.SUPPLEMENTED, ManualStatus.RESOLVED, ManualStatus.IGNORED])
+def test_manual_decisions_allow_archive_without_a_reason(manual_status):
     task = _task()
     task.results[0] = task.results[0].model_copy(update={
         "status": RuleStatus.MISSING,
         "severity": "low",
-        "manualDecision": ManualDecision(status=manual_status, reason="已人工核对并记录依据。"),
+        "manualDecision": ManualDecision(status=manual_status),
     })
 
     assert_archive_ready(task)
@@ -429,7 +422,9 @@ def test_failed_domain_retry_restores_completed_state(tmp_path, monkeypatch):
     assert updated.status == TaskStatus.COMPLETED
     assert updated.failedDomains == []
     assert run.await_args.kwargs["domains"] == DOMAIN_ORDER
-    assert len(updated.extractionPayload["facts"]) == 80
+    assert len(updated.extractionPayload["facts"]) == sum(
+        len(DOMAIN_FACT_PATHS[domain]) for domain in DOMAIN_ORDER
+    )
     assert len(updated.results) == 34
     assert store.STORE.get_audit_snapshot(task.id)["events"][-1]["event_type"] == "domain_retried"
 
@@ -538,7 +533,6 @@ def test_openapi_exposes_complete_review_lifecycle_routes():
     assert {
         "/api/v1/reviews/{task_id}/versions",
         "/api/v1/reviews/{task_id}/issues/{rule_id}/actions",
-        "/api/v1/reviews/{task_id}/issues/{rule_id}/follow-up-answer",
         "/api/v1/reviews/{task_id}/domains/{domain}/retry",
         "/api/v1/reviews/{task_id}/warnings/acknowledge",
         "/api/v1/reviews/{task_id}/artifacts/{artifact_id}",
