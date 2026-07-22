@@ -264,6 +264,26 @@ def test_online_money_schema_rejects_amount_in_used_flag():
     assert used["properties"]["value"]["type"] == ["boolean", "null"]
 
 
+def test_domain_schema_includes_fact_semantic_descriptions():
+    schema = build_domain_schema(DOMAIN_CONTRACTS["header_procedure"])
+    fact = schema["properties"]["facts"]["properties"]["procedure.record_reviewed"]
+
+    assert fact["description"] == "被询问人是否核对笔录"
+    assert fact["properties"]["value"]["description"] == "被询问人是否核对笔录"
+    assert "clear" in fact["properties"]["clarity"]["description"]
+    assert "直接支持" in fact["properties"]["evidenceAnchorIds"]["description"]
+
+
+def test_domain_schema_includes_entity_semantic_descriptions():
+    schema = build_domain_schema(DOMAIN_CONTRACTS["online_money"])
+    transfers = schema["properties"]["entities"]["properties"]["transfers"]
+    amount = transfers["items"]["properties"]["fields"]["properties"]["amount"]
+
+    assert transfers["description"] == "每笔线上转账记录"
+    assert amount["description"] == "转账金额"
+    assert amount["properties"]["value"]["description"] == "转账金额"
+
+
 def test_record_types_schema_allows_string_array():
     schema = build_domain_schema(DOMAIN_CONTRACTS["risk_and_evidence"])
 

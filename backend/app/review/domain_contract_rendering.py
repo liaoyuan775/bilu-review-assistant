@@ -12,6 +12,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 PROMPT_TEMPLATE = (ROOT / "prompt-templates" / "domain-extraction.txt").read_text(encoding="utf-8")
 DOMAIN_PROMPT_ROOT = ROOT / "prompt-templates" / "domains"
 
+CLARITY_DESCRIPTION = (
+    "原文明确程度：clear=明确肯定或否定；unclear=回答含糊；"
+    "unknown=原文明示无法确认；missing=未提供该事实。"
+)
+EVIDENCE_ANCHOR_DESCRIPTION = (
+    "直接支持该事实的证据锚点；clear 或 unclear 必须提供，"
+    "unknown 或 missing 必须为空数组。"
+)
+
 
 def _anchor_aliases(document: ParsedDocument) -> dict[str, str]:
     return {
@@ -193,11 +202,20 @@ def _fact_schema(fact: FactContract, allowed_anchor_ids: tuple[str, ...] | None)
     )
     return {
         "type": "object",
+        "description": fact.description,
         "properties": {
-            "value": _value_schema(fact.valueSchema),
-            "clarity": {"type": "string", "enum": ["clear", "unclear", "unknown", "missing"]},
+            "value": {
+                **_value_schema(fact.valueSchema),
+                "description": fact.description,
+            },
+            "clarity": {
+                "type": "string",
+                "enum": ["clear", "unclear", "unknown", "missing"],
+                "description": CLARITY_DESCRIPTION,
+            },
             "evidenceAnchorIds": {
                 "type": "array",
+                "description": EVIDENCE_ANCHOR_DESCRIPTION,
                 "maxItems": 5,
                 "items": anchor_items,
             },
@@ -221,13 +239,23 @@ def build_domain_schema(
         for entity_type, entity in contract.entities.items():
             entity_properties[entity_type] = {
                 "type": "array",
+                "description": entity.description,
                 "items": {
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string", "minLength": 1},
-                        "entityType": {"type": "string", "const": entity_type},
+                        "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "当前业务域内唯一的实体编号。",
+                        },
+                        "entityType": {
+                            "type": "string",
+                            "const": entity_type,
+                            "description": f"实体类型，固定为 {entity_type}。",
+                        },
                         "fields": {
                             "type": "object",
+                            "description": f"{entity.description}的字段。",
                             "properties": {
                                 field: _fact_schema(definition, allowed_anchor_ids)
                                 for field, definition in entity.fields.items()
