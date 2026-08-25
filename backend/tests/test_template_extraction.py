@@ -364,10 +364,7 @@ def test_domain_schema_constrains_evidence_to_document_anchor_aliases():
     fact = next(iter(schema["properties"]["facts"]["properties"].values()))
     evidence = fact["properties"]["evidenceAnchorIds"]
     assert evidence["maxItems"] == 5
-    assert evidence["items"] == {
-        "$ref": "#/$defs/anchorId",
-    }
-    assert schema["$defs"]["anchorId"] == {"type": "string", "enum": ["A001", "A002"]}
+    assert evidence["items"] == {"type": "string", "enum": ["A001", "A002"]}
 
 
 def test_unknown_fact_requires_no_evidence_anchor():
@@ -496,7 +493,8 @@ def test_prompt_exposes_one_anchor_for_a_complete_qa_evidence_block():
 
     assert "[锚点:A001]" in prompt
     assert "[锚点:A001,A002]" not in prompt
-    assert schema["$defs"]["anchorId"]["enum"] == ["A001"]
+    fact = next(iter(schema["properties"]["facts"]["properties"].values()))
+    assert fact["properties"]["evidenceAnchorIds"]["items"]["enum"] == ["A001"]
 
 
 def test_case_timeline_prompt_forbids_inference_from_isolated_events():
@@ -865,6 +863,37 @@ def test_review_keeps_results_when_one_domain_exhausts_schema_retries(monkeypatc
     assert outcome.domain_errors == {"contact_channels": "invalid_model_schema"}
     assert outcome.results[0].status == RuleStatus.NEEDS_MANUAL_REVIEW
     assert outcome.results[0].missingFacts == ["contact.initial_channel"]
+
+
+def test_review_keeps_results_when_unreachable_domain_exhausts_retries(monkeypatch):
+    partial = _missing_domain("header_procedure")
+    failure = extraction_mod.TemplateDomainFailure(
+        partial_extraction=partial,
+        failed_domains=["case_timeline"],
+        domain_errors={"case_timeline": "model_unreachable"},
+        domain_error_details={"case_timeline": "连接超时"},
+    )
+    monkeypatch.setattr(
+        extraction_mod,
+        "extract_template_facts",
+        AsyncMock(side_effect=failure),
+    )
+    rule = _rule("case.timeline").model_copy(update={
+        "ruleId": "CASE-002",
+        "group": "CASE",
+    })
+
+    outcome = asyncio.run(extraction_mod.run_template_review(
+        _document(),
+        rules=[rule],
+        domains=("case_timeline",),
+    ))
+
+    assert outcome.failed_domains == ["case_timeline"]
+    assert outcome.domain_errors == {"case_timeline": "model_unreachable"}
+    assert outcome.results[0].status == RuleStatus.NEEDS_MANUAL_REVIEW
+    assert "case_timeline" in outcome.extraction.failedDomains
+    assert "case.timeline" in outcome.extraction.facts
 
 
 def test_configured_schema_retries_control_attempt_count(monkeypatch):

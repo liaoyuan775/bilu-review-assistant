@@ -319,6 +319,7 @@ class DecisionResponse(BaseModel):
 class HealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ok: bool
+    env: dict = Field(default_factory=dict)
     qwen: dict
     ruleCount: int
 

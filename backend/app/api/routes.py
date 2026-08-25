@@ -32,7 +32,7 @@ from urllib.parse import quote
 from fastapi import BackgroundTasks, File, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from app.core.config import FRONTEND_ORIGIN, MAX_FILE_SIZE, QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
+from app.core.config import APP_ENV, FRONTEND_ORIGIN, MAX_FILE_SIZE, QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
 from app.data.rules import TEMPLATE_RULE_CATALOG, TEMPLATE_RULES
 from app.data.demo_cases import DEMO_CASES, get_demo_case, load_demo_document
 from app.core.development_logging import log_event
@@ -81,11 +81,21 @@ from app.storage.store import get_task
 # ═══════════════════════════════════════════════════════════
 
 async def health():
-    """健康检查端点 — 返回服务状态、Qwen 连接状态与规则数量。"""
+    """健康检查端点 — 返回环境信息、服务状态、Qwen 连接状态与规则数量。"""
+    import sys
     reachable = await check_qwen()
     return {
         "ok": True,
-        "qwen": {"configured": bool(QWEN_BASE_URL and QWEN_API_KEY and QWEN_MODEL), "reachable": reachable, "model": QWEN_MODEL or None},
+        "env": {
+            "name": APP_ENV,
+            "python": sys.version.split()[0],
+        },
+        "qwen": {
+            "configured": bool(QWEN_BASE_URL and QWEN_API_KEY and QWEN_MODEL),
+            "endpoint": QWEN_BASE_URL or None,
+            "model": QWEN_MODEL or None,
+            "reachable": reachable,
+        },
         "ruleCount": len(TEMPLATE_RULES),
     }
 

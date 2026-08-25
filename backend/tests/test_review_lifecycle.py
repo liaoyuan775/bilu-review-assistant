@@ -451,6 +451,30 @@ def test_failed_domain_retry_stays_failed_when_required_coverage_is_incomplete(t
     assert updated.results == []
 
 
+def test_failed_domain_retry_keeps_partial_results_when_domain_still_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "STORE", SqliteTaskStore(tmp_path / "reviews.db"))
+    task = _task()
+    task.status = TaskStatus.FAILED
+    task.failedDomains = ["case_timeline"]
+    task.extractionPayload = CaseExtraction().model_dump(mode="json")
+    store.save_task(task)
+    partial = _complete_extraction()
+    partial.failedDomains = ["case_timeline"]
+    kept = task.results[0].model_copy(update={"status": RuleStatus.NEEDS_MANUAL_REVIEW})
+    monkeypatch.setattr(review, "run_template_review", AsyncMock(return_value=TemplateReviewOutcome(
+        extraction=partial,
+        issues=[],
+        results=[kept],
+        failed_domains=["case_timeline"],
+    )))
+
+    updated = asyncio.run(review.retry_failed_domain(task.id, "case_timeline", "test-operator"))
+
+    assert updated.status == TaskStatus.COMPLETED
+    assert updated.failedDomains == ["case_timeline"]
+    assert updated.results == [kept]
+
+
 def test_upload_persists_original_version_run_fact_issue_and_artifact(tmp_path, monkeypatch):
     database = tmp_path / "reviews.db"
     monkeypatch.setattr(store, "STORE", SqliteTaskStore(database))

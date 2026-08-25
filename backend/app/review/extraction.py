@@ -120,15 +120,8 @@ def _domain_for_path(path: str) -> str:
         raise ValueError(f"Unknown template fact path: {path}") from exc
 
 
-# These failures mean the provider returned an unusable structured payload. The
-# successful domains still contain usable facts, so the affected rules can be
-# shown for manual review instead of discarding the whole document.
-_DEGRADABLE_DOMAIN_ERRORS = {
-    "invalid_model_schema",
-    "invalid_model_evidence",
-    "invalid_model_response",
-    "structured_output_not_enforced",
-}
+# 任一业务域重试耗尽后，成功域的事实仍保留，失败域按 missing 补齐，
+# 对应规则标为待人工核对，而不是整单失败。
 
 
 def _rule_domains(rule: TemplateRule) -> set[str]:
@@ -154,15 +147,12 @@ def _rule_domains(rule: TemplateRule) -> set[str]:
     return {_domain_for_path(path) for path in paths if path in _PATH_DOMAINS}
 
 
-def _partial_extraction_after_schema_failure(error: TemplateDomainFailure) -> CaseExtraction:
-    codes = set(error.domain_errors.values())
-    if not codes or not codes.issubset(_DEGRADABLE_DOMAIN_ERRORS):
-        raise error
+def _partial_extraction_after_domain_failure(error: TemplateDomainFailure) -> CaseExtraction:
     extraction = error.partial_extraction.model_copy(deep=True)
     extraction.failedDomains = list(dict.fromkeys([*extraction.failedDomains, *error.failed_domains]))
     for domain in error.failed_domains:
         for path in DOMAIN_FACT_PATHS[domain]:
-            extraction.facts.setdefault(path, ExtractedFact())
+            extraction.facts.setdefault(path, ExtractedFact(clarity="missing"))
         for entity_type in DOMAIN_ENTITY_FIELDS[domain]:
             extraction.entities.setdefault(entity_type, [])
     return extraction
@@ -916,6 +906,10 @@ def _merge_refreshed_domains(
         for entity_type in DOMAIN_ENTITY_FIELDS[domain]:
             if entity_type in refreshed.entities:
                 merged.entities[entity_type] = refreshed.entities[entity_type]
+    retried = set(domains)
+    remaining = [domain for domain in merged.failedDomains if domain not in retried]
+    remaining.extend(domain for domain in refreshed.failedDomains if domain not in remaining)
+    merged.failedDomains = remaining
     return merged
 
 
@@ -1007,8 +1001,7 @@ async def run_template_review(
             max_concurrency=max_concurrency,
         )
     except TemplateDomainFailure as error:
-        refreshed = _partial_extraction_after_schema_failure(error)
-        failed_domains = error.failed_domains
+        refreshed = _partial_extraction_after_domain_failure(error)
         domain_errors = error.domain_errors
         domain_error_details = error.domain_error_details
     extraction = (
@@ -1016,6 +1009,7 @@ async def run_template_review(
         if base_extraction is not None
         else refreshed
     )
+    failed_domains = list(dict.fromkeys(extraction.failedDomains))
     question_states, question_anchors = _question_states(document, selected_rules)
     issues = evaluate_template_rules(extraction, selected_rules, question_states)
     rules_by_id = {rule.ruleId: rule for rule in selected_rules}

@@ -196,7 +196,7 @@ def _value_schema(schema: ValueSchema) -> dict:
 
 def _fact_schema(fact: FactContract, allowed_anchor_ids: tuple[str, ...] | None) -> dict:
     anchor_items = (
-        {"$ref": "#/$defs/anchorId"}
+        {"type": "string", "enum": list(allowed_anchor_ids)}
         if allowed_anchor_ids is not None
         else {"type": "string"}
     )
@@ -296,10 +296,6 @@ def build_domain_schema(
         "required": ["facts", "entities", "failedDomains"],
         "additionalProperties": False,
     }
-    if allowed_anchor_ids is not None:
-        schema["$defs"] = {
-            "anchorId": {"type": "string", "enum": list(allowed_anchor_ids)},
-        }
     return schema
 
 

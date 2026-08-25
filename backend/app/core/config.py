@@ -15,6 +15,9 @@ import os
 from dotenv import load_dotenv
 
 
+# ── 运行环境 ────────────────────────────────────────────────────
+APP_ENV = os.getenv("APP_ENV", "development")  # development | production
+
 # ── 项目根路径 ──────────────────────────────────────────────────
 # BACKEND_ROOT 指向 backend/ 目录，用于定位 template_rules.json、数据库等。
 BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent

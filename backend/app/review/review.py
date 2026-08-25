@@ -257,6 +257,12 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
         save_task(task)
         log_event(logging.INFO, "review.status_changed", status=task.status.value)
         task.results = outcome.results
+        if outcome.failed_domains:
+            task.failedDomains = list(dict.fromkeys([*task.failedDomains, *outcome.failed_domains]))
+            if outcome.domain_errors:
+                task.domainErrors.update(outcome.domain_errors)
+            if outcome.domain_error_details:
+                task.domainErrorDetails.update(outcome.domain_error_details)
         task.status = TaskStatus.COMPLETED
         _persist_outcome(task, outcome)
         log_payload("review.results_merged", [result.model_dump(mode="json") for result in task.results], rules=len(task.results))
@@ -275,7 +281,7 @@ async def process_upload(task_id: str, filename: str, content: bytes) -> None:
                 task.documentVersionId,
                 rule_version=TEMPLATE_RULE_CATALOG.version,
                 model=QWEN_MODEL,
-                status="failed",
+                status="failed" if task.status == TaskStatus.FAILED else "completed",
                 timings=task.timings.modelGroupsMs,
             )
         log_event(logging.ERROR, "review.failed", code=error.code, message=error.message, field=error.field, rule_id=error.rule_id)
@@ -377,6 +383,12 @@ async def process_demo(task_id: str, demo_id: str) -> None:
         task.status = TaskStatus.VALIDATING
         save_task(task)
         task.results = results
+        if task.mode == ReviewMode.QWEN and outcome.failed_domains:
+            task.failedDomains = list(dict.fromkeys([*task.failedDomains, *outcome.failed_domains]))
+            if outcome.domain_errors:
+                task.domainErrors.update(outcome.domain_errors)
+            if outcome.domain_error_details:
+                task.domainErrorDetails.update(outcome.domain_error_details)
         task.status = TaskStatus.COMPLETED
         if task.mode == ReviewMode.QWEN:
             _persist_outcome(task, outcome)
@@ -777,10 +789,10 @@ async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> Revie
     if latest.reviewStatus == ReviewStatus.ARCHIVED:
         raise AppError("review_archived", "已归档审查为只读，不能重试。", 409)
     missing_after = _missing_extraction_domains(outcome.extraction)
-    completed = not missing_after and len(outcome.results) == len(TEMPLATE_RULE_CATALOG.rules)
-    task.results = outcome.results if completed else []
+    fully_ready = not missing_after and len(outcome.results) == len(TEMPLATE_RULE_CATALOG.rules)
+    task.results = outcome.results
     task.failedDomains = missing_after
-    task.status = TaskStatus.COMPLETED if completed else TaskStatus.FAILED
+    task.status = TaskStatus.COMPLETED if (outcome.results or fully_ready) else TaskStatus.FAILED
     task.errorCode = None if not task.failedDomains else task.errorCode
     task.errorMessage = None if not task.failedDomains else task.errorMessage
     invalidated = _merge_manual_decisions(
@@ -801,9 +813,9 @@ async def retry_failed_domain(task_id: str, domain: str, actor_id: str) -> Revie
         "issue_id": None,
         "event_type": "domain_retried",
         "actor_id": actor_id.strip() or "local-operator",
-        "payload": {"domain": domain, "completed": completed},
-    })
-    if completed:
+            "payload": {"domain": domain, "completed": fully_ready},
+        })
+    if outcome.results or fully_ready:
         if _persist_outcome(task, outcome, events=events):
             return task
     return save_task_with_events(task, events)

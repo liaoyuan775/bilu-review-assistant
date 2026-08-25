@@ -1,0 +1,53 @@
+# 笔录审查助手一键部署（前端 nginx + 后端）
+# 用法：在本目录执行 ./deploy.sh
+#
+# 构建上下文依赖解压后的仓库根目录：
+#   ../../backend
+#   ../../frontend
+
+name: bilu2
+
+services:
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: bilu2-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      QWEN_DOMAIN_CONCURRENCY: ${QWEN_DOMAIN_CONCURRENCY:-6}
+      REVIEW_DATABASE_PATH: ${REVIEW_DATABASE_PATH:-/app/data/reviews.db}
+      REVIEW_ARTIFACT_ROOT: ${REVIEW_ARTIFACT_ROOT:-/app/data/artifacts}
+    volumes:
+      - backend-data:/app/data
+    ports:
+      - "${BACKEND_PORT:-6678}:8787"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/v1/health', timeout=12)",
+        ]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/app/Dockerfile.frontend
+    container_name: bilu2-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "${FRONTEND_PORT:-5175}:80"
+
+volumes:
+  backend-data:

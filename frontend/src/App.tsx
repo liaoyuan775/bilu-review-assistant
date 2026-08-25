@@ -104,9 +104,11 @@ const manualLabel: Record<ManualStatus, string> = {
   not_applicable: "人工确认不适用",
 };
 
+const createTaskId = () => `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
 /** 创建初始（空）任务对象。 */
 const createInitialTask = (): ReviewTask => ({
-  id: crypto.randomUUID(),
+  id: createTaskId(),
   mode: "qwen",
   status: "idle",
   document: null,
@@ -177,7 +179,8 @@ function App() {
    */
   const completeReview = async (taskId: string) => {
     const completed = await pollReviewTask(taskId, setTask);
-    if (completed.status === "failed") {
+    const canOpenPartial = completed.results.length > 0 || (completed.failedDomains.length > 0 && Boolean(completed.document));
+    if (completed.status === "failed" && !canOpenPartial) {
       throw new ApiError(completed.errorCode ?? "review_service_failed", completed.errorMessage ?? "审查任务失败。");
     }
     // 自动定位到第一个问题项，如果没有问题则定位到第一条规则

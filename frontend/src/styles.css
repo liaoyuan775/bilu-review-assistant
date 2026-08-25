@@ -1,5 +1,35 @@
+/* 自托管字体：固定 /fonts/ 路径，不依赖用户本机字体 */
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("/fonts/noto-sans-sc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url("/fonts/noto-sans-sc-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("/fonts/noto-sans-sc-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 800;
+  font-display: block;
+  src: url("/fonts/noto-sans-sc-800.woff2") format("woff2");
+}
+
 :root {
-  font-family: "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+  font-family: "Noto Sans SC", sans-serif;
   color: #17233d;
   background: #f3f6f9;
   font-synthesis: none;
@@ -27,6 +57,9 @@
 }
 
 * { box-sizing: border-box; }
+html, body, #root, button, input, textarea, select {
+  font-family: "Noto Sans SC", sans-serif !important;
+}
 
 html, body, #root { min-height: 100%; margin: 0; }
 
@@ -309,12 +342,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .victim-profile-trigger > svg { color: var(--muted); transition: transform 160ms ease; }
 .victim-profile.is-hover-open .victim-profile-trigger > svg, .victim-profile.is-keyboard-open .victim-profile-trigger > svg, .victim-profile.is-pinned .victim-profile-trigger > svg { transform: rotate(180deg); }
 .victim-avatar { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 38px; border-radius: 50%; font-size: 18px; line-height: 1; letter-spacing: 0; }
-.victim-avatar.variant-1 { color: #174a87; background: #dcecff; font-family: "Microsoft YaHei UI", sans-serif; font-weight: 800; }
-.victim-avatar.variant-2 { color: #17623d; background: #dff3e8; font-family: KaiTi, "Microsoft YaHei UI", sans-serif; font-weight: 700; }
-.victim-avatar.variant-3 { color: #8a3030; background: #f7e3e1; font-family: FangSong, "Microsoft YaHei UI", sans-serif; font-weight: 800; }
-.victim-avatar.variant-4 { color: #12606b; background: #dceff1; font-family: "Microsoft YaHei UI", sans-serif; font-weight: 600; }
-.victim-avatar.variant-5 { color: #76520e; background: #f5ebcf; font-family: KaiTi, "Microsoft YaHei UI", sans-serif; font-weight: 800; }
-.victim-avatar.variant-6 { color: #4e5069; background: #e7e7f0; font-family: FangSong, "Microsoft YaHei UI", sans-serif; font-weight: 700; }
+.victim-avatar.variant-1 { color: #174a87; background: #dcecff; font-weight: 800; }
+.victim-avatar.variant-2 { color: #17623d; background: #dff3e8; font-weight: 700; }
+.victim-avatar.variant-3 { color: #8a3030; background: #f7e3e1; font-weight: 800; }
+.victim-avatar.variant-4 { color: #12606b; background: #dceff1; font-weight: 600; }
+.victim-avatar.variant-5 { color: #76520e; background: #f5ebcf; font-weight: 800; }
+.victim-avatar.variant-6 { color: #4e5069; background: #e7e7f0; font-weight: 700; }
 .victim-profile-summary { min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 8px; }
 .victim-profile-summary small { color: var(--muted); font-size: 10px; font-weight: 600; }
 .victim-profile-summary strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -494,7 +527,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .page-number { position: absolute; top: 17px; right: 22px; color: #9aa5b4; font-size: 10px; }
 .page-number.selected { padding: 3px 7px; color: #7d5700; background: #fff2c7; border: 1px solid #e7c45f; border-radius: 3px; font-weight: 700; }
 .document-page p { margin: 0 0 16px; padding: 7px 10px 7px 32px; color: #2b3546; font-family: "SimSun", "Songti SC", serif; font-size: 14px; line-height: 1.9; text-align: justify; border-left: 2px solid transparent; position: relative; transition: background-color 200ms ease, border-color 200ms ease; }
-.document-page p > .paragraph-index { position: absolute; left: 9px; top: 9px; color: #b0b8c4; font-family: "Microsoft YaHei UI", sans-serif; font-size: 9px; }
+.document-page p > .paragraph-index { position: absolute; left: 9px; top: 9px; color: #b0b8c4; font-size: 9px; }
 .document-page p.evidence-highlight { background: #fff6d7; border-left-color: #e9a700; animation: evidencePulse 900ms ease; }
 
 .review-pane { background: #fff; }
@@ -631,7 +664,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .workflow-node.phase-failure .workflow-node-icon { color: #b42318; background: #feecea; }
 .workflow-node-copy { min-width: 0; display: flex; flex-direction: column; }
 .workflow-node-step { min-height: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; color: #8090a5; font-family: Consolas, monospace; font-size: 9px; line-height: 1; }
-.workflow-node-step span:last-child { display: inline-flex; align-items: center; gap: 3px; font-family: "Microsoft YaHei UI", sans-serif; white-space: nowrap; }
+.workflow-node-step span:last-child { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .workflow-node.state-active .workflow-node-step span:last-child { color: #075fc6; }
 .workflow-node.state-completed .workflow-node-step span:last-child { color: #27824a; }
 .workflow-node.state-failed .workflow-node-step span:last-child { color: #b42318; }
@@ -673,7 +706,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .model-fixed-status.offline { color: #9d322a; background: #fff2f0; border-color: #f3d0cc; }
 .primary-button:disabled { color: #8b96a5; background: #dce2e8; cursor: not-allowed; box-shadow: none; }
 .paragraph-text { position: static; display: inline; color: inherit; font: inherit; }
-.source-chip { display: inline-flex; margin-left: 8px; padding: 1px 5px; color: #426078; background: #eef4f8; border: 1px solid #d6e2ea; border-radius: 3px; font-family: "Microsoft YaHei UI", sans-serif; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.source-chip { display: inline-flex; margin-left: 8px; padding: 1px 5px; color: #426078; background: #eef4f8; border: 1px solid #d6e2ea; border-radius: 3px; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .source-chip.vision { color: #72520b; background: #fff8df; border-color: #eadca7; }
 .result-group + .result-group { border-top: 1px solid var(--line-strong); }
 .result-group-heading { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; color: #35465c; background: #f5f8fb; border-bottom: 1px solid var(--line); }

@@ -103,6 +103,7 @@ async def _post_completion(client: httpx.AsyncClient, payload: dict, *, strategy
             status_code=response.status_code,
             duration_ms=round((perf_counter() - started) * 1000),
         )
+        log_event(logging.WARNING, "qwen.response_body", strategy=strategy, body=response.text[:2000])
         response_text = response.text.lower()
         unsupported = (
             response.status_code in {400, 422}
@@ -150,15 +151,21 @@ async def request_structured_payload(
 ) -> dict:
     """请求严格 JSON Schema 输出，用于模板事实抽取。"""
     serialized_schema = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    schema_instruction = (
+        "只返回严格符合下列 JSON Schema 的 JSON 对象；不得输出 Markdown、解释、改名或额外字段。"
+        f"JSON Schema：{serialized_schema}"
+    )
+    caller_system_parts: list[str] = []
+    non_system_messages: list[dict] = []
+    for msg in messages:
+        if msg.get("role") == "system":
+            caller_system_parts.append(msg["content"])
+        else:
+            non_system_messages.append(msg)
+    system_content = "\n".join([schema_instruction, *caller_system_parts])
     json_messages = [
-        {
-            "role": "system",
-            "content": (
-                "只返回严格符合下列 JSON Schema 的 JSON 对象；不得输出 Markdown、解释、改名或额外字段。"
-                f"JSON Schema：{serialized_schema}"
-            ),
-        },
-        *messages,
+        {"role": "system", "content": system_content},
+        *non_system_messages,
     ]
     message = await _post_completion(client, {
         "model": QWEN_MODEL,
